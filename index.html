@@ -229,6 +229,22 @@
       <section id="view-transactions" class="hidden" aria-labelledby="pageTitle">
         <div class="card">
           <div class="section-title"><div><h3>Fluxo de caixa</h3><p>Controle operacional de entradas, saidas, vencimentos e aportes em uma lista consolidada.</p></div></div>
+          <div class="ai-entry-panel" aria-labelledby="aiEntryTitle">
+            <div class="ai-entry-head">
+              <div>
+                <span class="eyebrow">Assistente local</span>
+                <h3 id="aiEntryTitle">Transforme o resumo do dia em lancamento</h3>
+                <p>Digite algo como: "Paguei 85,90 no mercado pelo PicPay hoje" ou "Recebi 1200 do cliente ontem no Nubank".</p>
+              </div>
+              <span class="status-pill">Beta local</span>
+            </div>
+            <textarea id="aiEntryText" rows="3" placeholder="Conte o que aconteceu no dia..."></textarea>
+            <div class="ai-entry-actions">
+              <button type="button" class="btn primary" id="btnAiParse">Interpretar</button>
+              <button type="button" class="btn ghost" id="btnAiClear">Limpar</button>
+            </div>
+            <div class="ai-entry-preview hidden" id="aiEntryPreview"></div>
+          </div>
           <div class="cashflow-strip" id="cashflowSummary"></div>
           <div class="txn-filter-col">
             <div class="txn-filter-actions">

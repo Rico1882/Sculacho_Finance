@@ -157,6 +157,8 @@ type CashflowFilter = 'all' | 'payable' | 'receivable' | 'overdue' | 'investment
 let cashflowFilter: CashflowFilter = 'all';
 type CsvImportRow = { tx: Transaction; duplicate: boolean; rawDescription: string };
 let pendingCsvImport: CsvImportRow[] = [];
+type AssistantDraft = { tx: Transaction; missing: string[]; confidence: number; source: string };
+let assistantDraft: AssistantDraft | null = null;
 
 async function loadStateFromDisk(): Promise<AppState> {
   const raw = localStorage.getItem(FINANCE_STORAGE_KEY);
@@ -1134,6 +1136,258 @@ function confirmCsvImport(): void {
 function cancelCsvImport(): void {
   pendingCsvImport = [];
   renderCsvImportPreview();
+}
+
+function normalizeAssistantText(raw: string): string {
+  return raw
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function isoDateFromLocal(d: Date): string {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).toISOString().slice(0, 10);
+}
+
+function assistantRelativeDate(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return isoDateFromLocal(d);
+}
+
+function parseAssistantDate(text: string, normalized: string): string {
+  const explicit = text.match(/\b(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?\b/);
+  if (explicit) {
+    const day = Number(explicit[1]);
+    const month = Number(explicit[2]);
+    const now = new Date();
+    const yearRaw = explicit[3] ? Number(explicit[3]) : now.getFullYear();
+    const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
+    const candidate = new Date(year, month - 1, day, 12);
+    if (
+      Number.isFinite(candidate.getTime()) &&
+      candidate.getFullYear() === year &&
+      candidate.getMonth() === month - 1 &&
+      candidate.getDate() === day
+    ) {
+      return isoDateFromLocal(candidate);
+    }
+  }
+  if (/\bontem\b/.test(normalized)) return assistantRelativeDate(-1);
+  if (/\b(amanha|amanhã)\b/.test(normalized)) return assistantRelativeDate(1);
+  return assistantRelativeDate(0);
+}
+
+function parseAssistantAmount(text: string): number {
+  const moneyPattern = /(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})|\d+(?:,\d{1,2})|\d{1,3}(?:\.\d{3})+|\d+)(?:\s*(?:reais|real))?/gi;
+  const matches = [...text.matchAll(moneyPattern)];
+  const explicit = matches.find((m) => /r\$|reais|real/i.test(m[0]));
+  const source = explicit ? [explicit] : matches;
+  const candidates = source
+    .filter((m) => {
+      const before = text[(m.index ?? 0) - 1] ?? '';
+      const after = text[(m.index ?? 0) + m[0].length] ?? '';
+      return before !== '/' && after !== '/' && before !== '-' && after !== '-';
+    })
+    .map((m) => parseMoneyBRL(m[1]))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return candidates.length ? candidates[candidates.length - 1] : NaN;
+}
+
+function inferAssistantType(normalized: string): TxnType {
+  const incomeTerms = /\b(recebi|receita|entrada|salario|cliente|venda|freela|freelance|pix recebido|deposito)\b/;
+  const expenseTerms = /\b(paguei|pagar|despesa|saida|comprei|gastei|mercado|supermercado|boleto|aluguel|condominio|uber|ifood|restaurante|farmacia|internet|luz|agua|combustivel)\b/;
+  if (incomeTerms.test(normalized) && !expenseTerms.test(normalized)) return 'entrada';
+  return 'saida';
+}
+
+function includesAny(text: string, terms: string[]): boolean {
+  return terms.some((term) => text.includes(term));
+}
+
+function pickCatalogCategory(type: TxnType, normalized: string): string {
+  const categories = type === 'entrada' ? state.catalog.incomeCategories : state.catalog.expenseCategories;
+  const matchExisting = categories.find((cat) => {
+    const c = normalizeAssistantText(cat);
+    return c && normalized.includes(c);
+  });
+  if (matchExisting) return matchExisting;
+
+  const findByName = (needles: string[], fallback: string): string => {
+    const found = categories.find((cat) => {
+      const c = normalizeAssistantText(cat);
+      return needles.some((needle) => c.includes(needle));
+    });
+    return found ?? fallback;
+  };
+
+  if (type === 'entrada') {
+    if (includesAny(normalized, ['salario', 'ordenado'])) return findByName(['sal', 'renda'], 'Salario');
+    if (includesAny(normalized, ['freela', 'freelance', 'cliente', 'projeto'])) return findByName(['freelance', 'venda'], 'Freelance');
+    if (includesAny(normalized, ['venda', 'vendido'])) return findByName(['venda'], 'Vendas');
+    return findByName(['outro'], 'Receita');
+  }
+
+  if (includesAny(normalized, ['mercado', 'supermercado', 'ifood', 'restaurante', 'padaria', 'almoco', 'jantar'])) {
+    return findByName(['aliment'], 'Alimentacao');
+  }
+  if (includesAny(normalized, ['uber', '99', 'combustivel', 'gasolina', 'onibus', 'metro', 'transporte'])) {
+    return findByName(['transport'], 'Transporte');
+  }
+  if (includesAny(normalized, ['farmacia', 'medico', 'consulta', 'saude'])) return findByName(['saude'], 'Saude');
+  if (includesAny(normalized, ['aluguel', 'condominio', 'luz', 'agua', 'casa'])) return findByName(['casa'], 'Casa');
+  if (includesAny(normalized, ['internet', 'wifi'])) return findByName(['internet'], 'Internet');
+  if (includesAny(normalized, ['cartao', 'credito'])) return findByName(['cart'], 'Cartao de Credito');
+  if (includesAny(normalized, ['aporte', 'investimento', 'cdb', 'poupanca'])) return findByName(['invest'], 'Investimento');
+  return findByName(['outro'], 'Outros');
+}
+
+function pickAssistantMethod(normalized: string): string {
+  if (normalized.includes('pix')) return 'Pix';
+  if (normalized.includes('debito')) return 'Debito';
+  if (normalized.includes('credito') || normalized.includes('cartao')) return 'Cartao';
+  if (normalized.includes('dinheiro')) return 'Dinheiro';
+  if (normalized.includes('boleto')) return 'Boleto';
+  if (normalized.includes('ted')) return 'TED';
+  return '';
+}
+
+function pickAssistantBank(normalized: string): string {
+  const found = state.banks.find((bank) => {
+    const labels = [bankOptionLabel(bank), bank.name, bank.note, bank.code].filter((v): v is string => Boolean(v));
+    return labels.some((label) => {
+      const n = normalizeAssistantText(label);
+      if (!n) return false;
+      if (normalized.includes(n)) return true;
+      const tokens = n
+        .split(/[^a-z0-9]+/)
+        .filter((token) => token.length > 2 && !['banco', 'conta', 'servicos', 'sem', 'tipo'].includes(token));
+      return tokens.some((token) => normalized.includes(token));
+    });
+  });
+  if (found) return found.id;
+  return state.banks.length === 1 ? state.banks[0].id : '';
+}
+
+function defaultAssistantStatus(type: TxnType, date: string, normalized: string): TxnStatus {
+  const today = assistantRelativeDate(0);
+  const future = date > today || includesAny(normalized, ['amanha', 'agendado', 'vou pagar', 'a pagar', 'a receber']);
+  if (type === 'entrada') return future ? 'a_receber' : 'recebido';
+  return future ? 'a_vencer' : 'pago';
+}
+
+function buildAssistantDraft(source: string): AssistantDraft {
+  const normalized = normalizeAssistantText(source);
+  const type = inferAssistantType(normalized);
+  const amount = parseAssistantAmount(source);
+  const date = parseAssistantDate(source, normalized);
+  const bankId = pickAssistantBank(normalized);
+  const category = pickCatalogCategory(type, normalized);
+  const method = pickAssistantMethod(normalized);
+  const tx: Transaction = {
+    id: uid(),
+    bankId,
+    type,
+    amount: Number.isFinite(amount) ? Math.round(amount * 100) / 100 : 0,
+    date,
+    dueDate: date,
+    category,
+    method,
+    description: source.trim().slice(0, 500),
+    ...(type === 'saida' ? { expenseKind: 'variavel' as ExpenseKind } : {}),
+    status: defaultAssistantStatus(type, date, normalized),
+  };
+  return { tx, missing: assistantMissingFields(tx), confidence: 0.72, source };
+}
+
+function assistantMissingFields(tx: Transaction): string[] {
+  const missing: string[] = [];
+  if (!tx.amount || !Number.isFinite(tx.amount) || tx.amount <= 0) missing.push('valor');
+  if (!tx.date) missing.push('data');
+  if (!tx.category.trim()) missing.push('categoria');
+  if (state.banks.length > 0 && !tx.bankId) missing.push('conta');
+  return missing;
+}
+
+function renderAssistantPreview(): void {
+  const box = document.getElementById('aiEntryPreview');
+  if (!box) return;
+  if (!assistantDraft) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  const { tx, missing } = assistantDraft;
+  const bankOptions =
+    '<option value="">Selecione a conta</option>' +
+    state.banks.map((b) => `<option value="${esc(b.id)}"${b.id === tx.bankId ? ' selected' : ''}>${esc(bankOptionLabel(b))}</option>`).join('');
+  const typeOptions = `<option value="entrada"${tx.type === 'entrada' ? ' selected' : ''}>Receita</option><option value="saida"${tx.type === 'saida' ? ' selected' : ''}>Despesa</option>`;
+  const expenseKindOptions = `<option value="variavel"${tx.expenseKind === 'variavel' ? ' selected' : ''}>Variavel</option><option value="fixa"${tx.expenseKind === 'fixa' ? ' selected' : ''}>Fixa</option>`;
+  box.classList.remove('hidden');
+  box.innerHTML = `
+    <div class="ai-preview-head">
+      <div>
+        <h3>Rascunho do lancamento</h3>
+        <p>${missing.length ? `Faltou confirmar: ${esc(missing.join(', '))}.` : 'Tudo pronto para salvar.'}</p>
+      </div>
+      <span class="ai-confidence">${Math.round(assistantDraft.confidence * 100)}% local</span>
+    </div>
+    <div class="ai-draft-grid">
+      <label>Tipo<select id="aiDraftType">${typeOptions}</select></label>
+      <label>Conta<select id="aiDraftBank">${bankOptions}</select></label>
+      <label>Valor<input id="aiDraftAmount" type="text" value="${tx.amount > 0 ? esc(formatMoneyInputBR(tx.amount)) : ''}" placeholder="150,00" /></label>
+      <label>Data<input id="aiDraftDate" type="date" value="${esc(tx.date)}" /></label>
+      <label>Categoria<input id="aiDraftCategory" type="text" value="${esc(tx.category)}" /></label>
+      <label>Forma<input id="aiDraftMethod" type="text" value="${esc(tx.method)}" placeholder="Pix, cartao..." /></label>
+      <label class="${tx.type === 'saida' ? '' : 'hidden'}">Natureza<select id="aiDraftExpenseKind">${expenseKindOptions}</select></label>
+    </div>
+    <label class="ai-description">Descricao<textarea id="aiDraftDescription" rows="2">${esc(tx.description)}</textarea></label>
+    <div class="ai-entry-actions">
+      <button type="button" class="btn primary" id="btnAiSave">Salvar lancamento</button>
+      <button type="button" class="btn ghost" id="btnAiDiscard">Descartar</button>
+    </div>
+  `;
+}
+
+function syncAssistantDraftFromPreview(): boolean {
+  if (!assistantDraft) return false;
+  const typeRaw = getEl<HTMLSelectElement>('aiDraftType').value;
+  const type: TxnType = isTxnType(typeRaw) ? typeRaw : 'saida';
+  const expenseKindRaw = document.getElementById('aiDraftExpenseKind') as HTMLSelectElement | null;
+  const expenseKind = expenseKindRaw && isExpenseKind(expenseKindRaw.value) ? expenseKindRaw.value : undefined;
+  const next: Transaction = {
+    ...assistantDraft.tx,
+    type,
+    bankId: getEl<HTMLSelectElement>('aiDraftBank').value,
+    amount: moneyAmountFromUserInput(getEl<HTMLInputElement>('aiDraftAmount').value),
+    date: getEl<HTMLInputElement>('aiDraftDate').value,
+    dueDate: getEl<HTMLInputElement>('aiDraftDate').value,
+    category: getEl<HTMLInputElement>('aiDraftCategory').value.trim(),
+    method: getEl<HTMLInputElement>('aiDraftMethod').value.trim(),
+    description: getEl<HTMLTextAreaElement>('aiDraftDescription').value.trim().slice(0, 500),
+    ...(type === 'saida' && expenseKind ? { expenseKind } : {}),
+  };
+  if (type === 'entrada') delete next.expenseKind;
+  next.status = defaultAssistantStatus(type, next.date, normalizeAssistantText(assistantDraft.source));
+  assistantDraft.tx = next;
+  assistantDraft.missing = assistantMissingFields(assistantDraft.tx);
+  return true;
+}
+
+function saveAssistantDraft(): void {
+  if (!syncAssistantDraftFromPreview() || !assistantDraft) return;
+  if (assistantDraft.missing.length) {
+    renderAssistantPreview();
+    toast(`Complete antes de salvar: ${assistantDraft.missing.join(', ')}.`, 'error');
+    return;
+  }
+  state.transactions.push(assistantDraft.tx);
+  assistantDraft = null;
+  getEl<HTMLTextAreaElement>('aiEntryText').value = '';
+  renderAssistantPreview();
+  renderAll();
+  switchView('transactions');
+  toast('Lancamento criado pelo assistente local.', 'success');
 }
 
 function renderTransactionsTable(): void {
@@ -2550,6 +2804,34 @@ export async function initApp(): Promise<void> {
     const target = e.target as HTMLElement;
     if (target.closest('#confirmCsvImport')) confirmCsvImport();
     if (target.closest('#cancelCsvImport')) cancelCsvImport();
+  });
+  getEl<HTMLButtonElement>('btnAiParse').addEventListener('click', () => {
+    const source = getEl<HTMLTextAreaElement>('aiEntryText').value.trim();
+    if (!source) {
+      toast('Descreva o que aconteceu para o assistente interpretar.', 'error');
+      return;
+    }
+    assistantDraft = buildAssistantDraft(source);
+    renderAssistantPreview();
+  });
+  getEl<HTMLButtonElement>('btnAiClear').addEventListener('click', () => {
+    assistantDraft = null;
+    getEl<HTMLTextAreaElement>('aiEntryText').value = '';
+    renderAssistantPreview();
+  });
+  getEl<HTMLTextAreaElement>('aiEntryText').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      getEl<HTMLButtonElement>('btnAiParse').click();
+    }
+  });
+  getEl('aiEntryPreview').addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('#btnAiSave')) saveAssistantDraft();
+    if (target.closest('#btnAiDiscard')) {
+      assistantDraft = null;
+      renderAssistantPreview();
+    }
   });
   getEl<HTMLInputElement>('importJson').addEventListener('change', (e) => {
     const input = e.target as HTMLInputElement;

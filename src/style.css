@@ -1558,6 +1558,94 @@ a {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 10px 24px rgba(15, 23, 42, 0.05);
 }
 
+.ai-entry-panel {
+  margin: 18px 0 16px;
+  padding: 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(29, 99, 216, 0.14);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(239, 246, 255, 0.8)),
+    radial-gradient(120% 90% at 100% 0%, rgba(13, 148, 136, 0.11), transparent 58%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 12px 28px rgba(15, 23, 42, 0.05);
+}
+
+.ai-entry-head,
+.ai-preview-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.ai-entry-head h3,
+.ai-preview-head h3 {
+  margin: 2px 0 0;
+  color: #0f172a;
+  font-size: 17px;
+  font-weight: 850;
+}
+
+.ai-entry-head p,
+.ai-preview-head p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ai-entry-panel textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
+.ai-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.ai-entry-preview {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.ai-confidence {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 7px 10px;
+  border: 1px solid rgba(29, 99, 216, 0.16);
+  background: rgba(239, 246, 255, 0.9);
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ai-draft-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ai-draft-grid label,
+.ai-description {
+  display: grid;
+  gap: 6px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ai-description {
+  margin-top: 12px;
+}
+
 .import-preview-head {
   display: flex;
   justify-content: space-between;
@@ -1646,9 +1734,15 @@ a {
 
   .recurrence-head,
   .recurrence-item,
-  .import-preview-head {
+  .import-preview-head,
+  .ai-entry-head,
+  .ai-preview-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .ai-draft-grid {
+    grid-template-columns: 1fr;
   }
 }
 
