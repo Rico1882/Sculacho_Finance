@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 220" fill="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="sky" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#1d63d8" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#0d9488" stop-opacity="0.12"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="145" cy="198" rx="118" ry="18" fill="url(#sky)"/>
+  <path d="M32 178c48-28 168-28 216 0v22H32z" fill="url(#sky)" opacity="0.55"/>
+  <!-- Estrelas (conquistas) -->
+  <path fill="#fbbf24" d="M224 32l5.2 10.6 11.6 1.7-8.4 8.2 2 11.5-10.4-5.5-10.4 5.5 2-11.5-8.4-8.2 11.6-1.7z" opacity="0.95"/>
+  <path fill="#1d63d8" d="M48 44l3.2 6.5 7.2 1-5.2 5.1 1.2 7.2-6.4-3.4-6.4 3.4 1.2-7.2-5.2-5.1 7.2-1z" opacity="0.45"/>
+  <path fill="#0d9488" d="M252 72l2.4 4.9 5.4.8-3.9 3.8.9 5.3-4.8-2.5-4.8 2.5.9-5.3-3.9-3.8 5.4-.8z" opacity="0.4"/>
+  <!-- Arco de ascens?o -->
+  <path
+    d="M56 168C88 108 168 72 232 52"
+    stroke="url(#body)"
+    stroke-width="2.5"
+    stroke-linecap="round"
+    stroke-dasharray="5 9"
+    opacity="0.35"
+  />
+  <!-- Pessoa: cabe?a -->
+  <circle cx="138" cy="82" r="20" fill="url(#body)" opacity="0.9"/>
+  <!-- Torso -->
+  <path d="M138 104c-16 0-30 12-34 28v42h68v-42c-4-16-18-28-34-28z" fill="url(#body)" opacity="0.88"/>
+  <!-- Bra?os em V (vit?ria) -->
+  <path
+    d="M118 112L78 78"
+    stroke="url(#body)"
+    stroke-width="12"
+    stroke-linecap="round"
+    opacity="0.75"
+  />
+  <path
+    d="M158 112l40-34"
+    stroke="url(#body)"
+    stroke-width="12"
+    stroke-linecap="round"
+    opacity="0.75"
+  />
+  <!-- Moeda (patrim?nio) -->
+  <circle cx="68" cy="156" r="16" fill="#fff" stroke="#1d63d8" stroke-width="2.8" opacity="0.92"/>
+  <path
+    d="M68 148v16M62 152.5c0-4 12-4 12 0s-12 4-12 0"
+    stroke="#1d63d8"
+    stroke-width="2"
+    stroke-linecap="round"
+    fill="none"
+    opacity="0.75"
+  />
+  <!-- Pequena estrela ao lado da pessoa -->
+  <path fill="#f59e0b" d="M178 58l2.5 5 5.6.8-4 3.9 1 5.6-5-2.6-5 2.6 1-5.6-4-3.9 5.6-.8z" opacity="0.85"/>
+</svg>

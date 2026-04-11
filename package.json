@@ -1,0 +1,20 @@
+{
+  "name": "sculacho-com",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Cockpit financeiro local-first com fluxo de caixa, orcamentos e relatorios.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "build:zip": "npm run build && bestzip dist.zip dist",
+    "preview": "vite preview",
+    "app": "vite preview --port 4173 --open --strictPort"
+  },
+  "devDependencies": {
+    "bestzip": "^2.2.3",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.3",
+    "xlsx": "^0.18.5"
+  }
+}

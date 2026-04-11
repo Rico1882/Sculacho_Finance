@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Sculacho.com — controle financeiro pessoal com dados no navegador." />
+  <meta name="theme-color" content="#1d63d8" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Sculacho" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/logo-app.png" />
+  <title>Sculacho.com</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&family=DM+Sans:ital,opsz,wght@0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Ir para o conteúdo</a>
+  <div id="authShell" class="auth-shell" hidden>
+    <div class="auth-card card">
+      <div class="auth-brand">
+        <img src="/logo-app.png" width="56" height="56" alt="" decoding="async" />
+        <div>
+          <h2 class="auth-title">Sculacho.com</h2>
+          <p class="muted small" style="margin:0">Introduza a senha para aceder aos seus dados neste dispositivo.</p>
+        </div>
+      </div>
+      <form id="authForm" class="auth-form">
+        <div>
+          <label for="authPassword">Senha</label>
+          <input id="authPassword" type="password" autocomplete="current-password" required />
+        </div>
+        <button type="submit" class="btn primary auth-submit">Entrar</button>
+        <p id="authError" class="auth-error hidden" role="alert"></p>
+      </form>
+      <p class="footer-note auth-footnote">A proteção é local ao navegador (sem servidor). Guarde cópias em <strong>Backup</strong> e memorize a senha.</p>
+    </div>
+  </div>
+  <div class="app">
+    <aside class="sidebar" aria-label="Navegação principal">
+      <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Recolher menu" aria-expanded="true" title="Recolher menu">
+        <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div class="brand">
+        <div class="logo"><img src="/logo-app.png" width="80" height="80" alt="" decoding="async" /></div>
+        <div class="brand-copy">
+          <h1>Sculacho.com</h1>
+          <p>Controle financeiro pessoal</p>
+        </div>
+      </div>
+      <nav class="nav" role="navigation">
+        <button type="button" class="nav-btn active" data-view="dashboard" aria-current="page">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span class="nav-label">Dashboard</span>
+        </button>
+        <button type="button" class="nav-btn" data-view="transactions">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          <span class="nav-label">Fluxo de Caixa</span>
+        </button>
+        <button type="button" class="nav-btn" data-view="budgets">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M13 16V8"/><path d="M18 16v-3"/></svg>
+          <span class="nav-label">Orcamentos</span>
+        </button>
+        <button type="button" class="nav-btn" data-view="banks">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+          <span class="nav-label">Contas</span>
+        </button>
+        <button type="button" class="nav-btn" data-view="cadastros">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <span class="nav-label">Parametros</span>
+        </button>
+        <button type="button" class="nav-btn" data-view="investments">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          <span class="nav-label">Metas e Aportes</span>
+        </button>
+        <button type="button" class="nav-btn" data-view="reports">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+          <span class="nav-label">Relatorios</span>
+        </button>
+        <button type="button" class="nav-btn" data-view="settings">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span class="nav-label">Dados e Seguranca</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <button type="button" class="btn ghost auth-logout-btn" id="btnAuthLogout" hidden>Sair (pedir senha de novo)</button>
+        <div class="sidebar-footer-copy">
+          Dados locais no navegador. Backup e exportacao sob seu controle.
+        </div>
+        <span class="sidebar-chip">UI</span>
+      </div>
+    </aside>
+
+    <main id="main" class="main">
+      <div class="topbar">
+        <div class="title-wrap">
+          <h2 id="pageTitle">Dashboard</h2>
+          <p id="pageSubtitle">Visão geral das movimentações e dos saldos por banco.</p>
+        </div>
+      </div>
+
+      <section id="view-dashboard" aria-labelledby="pageTitle">
+        <div class="dashboard-kpis">
+          <div class="card kpi"><h3>Saldo geral</h3><div class="value" id="kpiBalance">R$ 0,00</div></div>
+          <div class="card kpi"><h3>Total de entradas</h3><div class="value positive" id="kpiIncome">R$ 0,00</div></div>
+          <div class="card kpi"><h3>Total de saídas</h3><div class="value negative" id="kpiExpense">R$ 0,00</div></div>
+          <div class="card kpi kpi-invest"><h3>Patrimônio investido</h3><p class="kpi-hint">Soma dos aportes registados</p><div class="value kpi-invest-value" id="kpiInvested">R$ 0,00</div></div>
+          <div class="card kpi"><h3>Lançamentos</h3><p class="kpi-hint">Lista: receitas, despesas e aportes</p><div class="value" id="kpiCount">0</div></div>
+        </div>
+        <div class="card decision-center-card" aria-labelledby="decisionCenterTitle">
+          <div class="section-title section-title-premium">
+            <div>
+              <h3 id="decisionCenterTitle">Centro de decisao</h3>
+              <p>Sinais praticos para fluxo de caixa, compromissos e ritmo de aporte.</p>
+            </div>
+            <span class="pill">Operacional</span>
+          </div>
+          <div class="decision-grid" id="dashboardDecisionCenter"></div>
+        </div>
+        <div class="card kpi-goal-card kpi-hero-card" aria-labelledby="kpiTotalPatrimonyLabel">
+          <div class="kpi-hero-bento">
+            <div class="kpi-hero-block kpi-hero-block--patrimony">
+              <div class="kpi-hero-patrimony-copy">
+                <p class="kpi-hero-eyebrow" id="kpiTotalPatrimonyLabel">Patrimônio total</p>
+                <div class="kpi-hero-mega" id="kpiTotalPatrimony">R$ 0,00</div>
+                <p class="kpi-hero-foot">Posição consolidada: caixa operacional mais aportes registrados.</p>
+              </div>
+              <div class="kpi-hero-patrimony-art" aria-hidden="true">
+                <img
+                  src="/patrimonio-sonhos.svg"
+                  width="280"
+                  height="220"
+                  alt=""
+                  decoding="async"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+            <div class="kpi-hero-block kpi-hero-block--goal">
+              <p class="kpi-hero-eyebrow kpi-hero-eyebrow--goal">
+                Meta de aportes no ano <span class="kpi-hero-year" id="kpiGoalYear"></span>
+              </p>
+              <p class="kpi-hero-microhint">Mesmo valor definido em <strong>Investimentos</strong> · só entram aportes com data neste ano civil.</p>
+              <div class="kpi-hero-duo">
+                <div class="kpi-hero-pill-stat">
+                  <span class="kpi-hero-pill-label">Meta do ano</span>
+                  <span class="kpi-hero-pill-value" id="kpiGoalDisplay">—</span>
+                </div>
+                <div class="kpi-hero-pill-stat">
+                  <span class="kpi-hero-pill-label">Já aportado</span>
+                  <span class="kpi-hero-pill-value kpi-hero-pill-value--flow" id="kpiGoalYtd">—</span>
+                </div>
+              </div>
+              <div class="kpi-hero-remain" id="kpiGoalRemainWrap">
+                <span class="kpi-hero-remain-label" id="kpiGoalRemainLabel">Falta para a meta</span>
+                <span class="kpi-hero-remain-amount" id="kpiGoalRemainValue">—</span>
+              </div>
+              <p id="kpiGoalGap" class="kpi-hero-detail"></p>
+              <div class="kpi-goal-progress kpi-goal-progress--hero" aria-hidden="true">
+                <span id="kpiGoalProgressFill"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="two-col dashboard-two-col" style="margin-top:18px">
+          <div class="card">
+            <div class="section-title section-title-premium"><div><h3>Últimos lançamentos</h3><p>Movimentações mais recentes</p></div><span class="pill">Lista</span></div>
+            <div class="table-wrap" id="dashboardRecent"></div>
+          </div>
+          <div class="card">
+            <div class="section-title section-title-premium"><div><h3>Saldos por banco</h3><p>Total por conta: saldo de lançamentos + aportes investidos vinculados</p></div></div>
+            <div id="bankBars" class="bar-wrap"></div>
+          </div>
+        </div>
+
+        <div class="dashboard-premium-grid">
+          <article class="card dashboard-chart-card">
+            <div class="section-title section-title-premium">
+              <div>
+                <h3>Evolução mensal</h3>
+                <p>Referência visual do ritmo de entradas e saídas (ilustrativo).</p>
+              </div>
+              <span class="pill">Últimos meses</span>
+            </div>
+            <div class="premium-chart">
+              <svg viewBox="0 0 1000 260" preserveAspectRatio="none" aria-hidden="true">
+                <defs>
+                  <linearGradient id="premiumLineGlow" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#1d63d8" />
+                    <stop offset="100%" stop-color="#0d9488" />
+                  </linearGradient>
+                </defs>
+                <path
+                  d="M 30 210 C 130 190, 170 170, 230 175 S 340 150, 410 155 S 540 125, 610 128 S 750 86, 840 102 S 930 76, 970 72"
+                  fill="none"
+                  stroke="url(#premiumLineGlow)"
+                  stroke-width="5"
+                  stroke-linecap="round"
+                ></path>
+              </svg>
+            </div>
+          </article>
+          <article class="card dashboard-insights-card">
+            <div class="section-title section-title-premium">
+              <div>
+                <h3>Diagnóstico financeiro</h3>
+                <p>Leitura automática dos pontos que merecem atenção.</p>
+              </div>
+            </div>
+            <div class="insights-list" id="dashboardInsights">
+              <div class="insight-block">
+                <strong>Concentração por conta</strong>
+                <p id="dashInsightBank">Cadastre bancos e lançamentos para ver destaques.</p>
+              </div>
+              <div class="insight-block">
+                <strong>Fluxo operacional</strong>
+                <p id="dashInsightFlow">As entradas e saídas aparecem nos cartões acima.</p>
+              </div>
+              <div class="insight-block">
+                <strong>Ritmo de aporte</strong>
+                <p>Defina a meta anual em Investimentos e acompanhe o progresso no painel consolidado.</p>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-transactions" class="hidden" aria-labelledby="pageTitle">
+        <div class="card">
+          <div class="section-title"><div><h3>Fluxo de caixa</h3><p>Controle operacional de entradas, saidas, vencimentos e aportes em uma lista consolidada.</p></div></div>
+          <div class="cashflow-strip" id="cashflowSummary"></div>
+          <div class="txn-filter-col">
+            <div class="txn-filter-actions">
+              <button type="button" class="btn primary" id="btnAddTxnInline">Adicionar lancamento</button>
+              <button type="button" class="btn ghost" id="btnImportCsv">Importar CSV</button>
+              <input type="file" id="importCsvFile" class="hidden" accept=".csv,text/csv" />
+            </div>
+            <div class="cashflow-tabs" id="cashflowTabs" aria-label="Filtros do fluxo de caixa">
+              <button type="button" class="cashflow-tab active" data-cashflow-filter="all">Todos</button>
+              <button type="button" class="cashflow-tab" data-cashflow-filter="payable">A pagar</button>
+              <button type="button" class="cashflow-tab" data-cashflow-filter="receivable">A receber</button>
+              <button type="button" class="cashflow-tab" data-cashflow-filter="overdue">Atrasados</button>
+              <button type="button" class="cashflow-tab" data-cashflow-filter="investments">Investimentos</button>
+            </div>
+          </div>
+          <div class="import-preview hidden" id="csvImportPreview"></div>
+          <div class="table-wrap txn-table-wrap" id="transactionsTable"></div>
+          <div class="recurrence-panel" id="cashflowRecurrences"></div>
+        </div>
+      </section>
+
+      <section id="view-banks" class="hidden" aria-labelledby="pageTitle">
+        <div class="grid" style="margin-bottom:18px">
+          <div class="card bank-layout-main">
+            <div class="section-title"><div><h3>Bancos cadastrados</h3><p>Contas e instituições que você acompanha</p></div></div>
+            <div id="banksList" class="list"></div>
+          </div>
+          <div class="card bank-layout-form">
+            <div class="section-title"><div><h3>Novo banco</h3><p>Preencha manualmente ou use o catálogo</p></div></div>
+            <div class="form-grid">
+              <div class="full">
+                <label for="catalogSearch">Catálogo Brasil (busca)</label>
+                <input id="catalogSearch" type="search" placeholder="Nome ou código FEBRABAN…" autocomplete="off" />
+                <div id="catalogList" class="catalog-scroll" role="listbox" aria-label="Resultados do catálogo"></div>
+              </div>
+              <input type="hidden" id="bankCode" />
+              <input type="hidden" id="bankSegment" />
+              <div><label for="bankName">Nome do banco</label><input id="bankName" placeholder="Ex.: Nubank" autocomplete="organization" /></div>
+              <div><label for="bankAccountType">Tipo de conta</label><select id="bankAccountType"><option value="Conta corrente">Conta corrente</option><option value="Conta poupança">Conta poupança</option><option value="Carteira">Carteira</option><option value="Investimento">Investimento</option><option value="Outro">Outro</option></select></div>
+              <div class="full"><label for="bankNote">Observação <span class="field-hint">(máx. 500 caracteres)</span></label><input id="bankNote" type="text" maxlength="500" placeholder="Ex.: Conta principal" autocomplete="off" /></div>
+              <div class="full"><button type="button" class="btn success" id="btnCreateBank">Salvar banco</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-cadastros" class="hidden" aria-labelledby="pageTitle">
+        <div class="cadastro-grid">
+          <div class="card">
+            <div class="section-title"><div><h3>Categorias de receita</h3><p>Sugestões ao lançar receitas</p></div></div>
+            <div class="form-grid" style="margin-bottom:14px">
+              <div class="full" style="display:flex; gap:10px; flex-wrap:wrap">
+                <input id="cadIncomeInput" placeholder="Nova categoria" style="flex:1; min-width:160px" />
+                <button type="button" class="btn success" id="btnCadIncomeAdd">Adicionar</button>
+              </div>
+            </div>
+            <div id="cadIncomeList" class="chip-list"></div>
+          </div>
+          <div class="card">
+            <div class="section-title"><div><h3>Categorias de despesa</h3><p>Sugestões ao lançar despesas</p></div></div>
+            <div class="form-grid" style="margin-bottom:14px">
+              <div class="full" style="display:flex; gap:10px; flex-wrap:wrap">
+                <input id="cadExpenseInput" placeholder="Nova categoria" style="flex:1; min-width:160px" />
+                <button type="button" class="btn success" id="btnCadExpenseAdd">Adicionar</button>
+              </div>
+            </div>
+            <div id="cadExpenseList" class="chip-list"></div>
+          </div>
+          <div class="card">
+            <div class="section-title"><div><h3>Tipos de investimento</h3><p>Usados nos aportes</p></div></div>
+            <div class="form-grid" style="margin-bottom:14px">
+              <div class="full" style="display:flex; gap:10px; flex-wrap:wrap">
+                <input id="cadInvTypeInput" placeholder="Ex.: CDB, Poupança" style="flex:1; min-width:160px" />
+                <button type="button" class="btn success" id="btnCadInvTypeAdd">Adicionar</button>
+              </div>
+            </div>
+            <div id="cadInvTypeList" class="chip-list"></div>
+          </div>
+        </div>
+        <p class="footer-note" style="margin-top:16px">As categorias aparecem como sugestão (lista) no campo categoria dos lançamentos. Pode escrever valores livres mesmo fora da lista.</p>
+      </section>
+
+      <section id="view-budgets" class="hidden" aria-labelledby="pageTitle">
+        <div class="card budgets-card">
+          <div class="section-title"><div><h3>Orcamentos mensais</h3><p>Defina limites por categoria de despesa para receber alertas no dashboard.</p></div></div>
+          <div id="budgetList" class="budget-list"></div>
+        </div>
+      </section>
+
+      <section id="view-investments" class="hidden" aria-labelledby="pageTitle">
+        <div class="inv-dash-top">
+          <div class="card inv-dash-hero">
+            <p class="muted small" style="margin:0 0 6px">Patrimônio líquido</p>
+            <p id="invDashNetWorth" class="inv-dash-hero-amount">R$ 0,00</p>
+            <p class="muted small" style="margin:0">Soma do saldo dos lançamentos (receitas − despesas) + total investido em aportes.</p>
+          </div>
+          <div class="card inv-dash-meta">
+            <h3 class="inv-dash-card-title">Meta anual de aportes</h3>
+            <p class="muted small" style="margin:0 0 12px">Ano civil <strong id="invDashYear">2026</strong> · soma dos valores dos investimentos com data neste ano.</p>
+            <div class="inv-dash-meta-field">
+              <label for="annualInvestmentGoalInput">Meta de aportes no ano (R$)</label>
+              <input id="annualInvestmentGoalInput" type="text" inputmode="decimal" autocomplete="off" placeholder="Ex.: 100.000,00" />
+            </div>
+            <p class="inv-dash-stat"><span class="muted">Aportes no ano:</span> <strong id="invDashYtd">R$ 0,00</strong></p>
+            <p class="inv-dash-stat"><span class="muted">Total investido (todas as datas):</span> <strong id="invDashInvestedTotal">R$ 0,00</strong></p>
+            <p id="invDashInvGoalGap" class="inv-dash-gap muted" aria-live="polite"></p>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:18px">
+          <div class="section-title">
+            <div><h3>Saldo de investimentos por conta</h3><p>Soma dos aportes vinculados a cada banco (ou sem vínculo)</p></div>
+          </div>
+          <div id="invByBank" class="inv-by-bank-list"></div>
+        </div>
+
+        <div class="card" style="margin-bottom:18px">
+          <div class="section-title">
+            <div><h3>Metas de compra</h3><p>Meta em R$. A barra usa o extra manual + aportes de investimento em que escolheste a mesma meta.</p></div>
+          </div>
+          <div id="invSavingsGoals" class="inv-goals-list">
+            <div class="inv-goal-row">
+              <strong class="inv-goal-label">Carro</strong>
+              <div class="inv-goal-fields">
+                <div><label for="goal-carro-target">Meta (R$)</label><input id="goal-carro-target" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00" data-goal-id="carro" data-goal-field="target" /></div>
+                <div><label for="goal-carro-saved">Extra manual (R$)</label><input id="goal-carro-saved" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00" data-goal-id="carro" data-goal-field="saved" /></div>
+              </div>
+              <p id="inv-goal-aportes-carro" class="muted small" style="margin:0"></p>
+              <div class="bar inv-goal-bar" data-goal-bar="carro"><span></span></div>
+              <p id="inv-goal-pct-carro" class="inv-goal-pct muted small"></p>
+            </div>
+            <div class="inv-goal-row">
+              <strong class="inv-goal-label">Casa</strong>
+              <div class="inv-goal-fields">
+                <div><label for="goal-casa-target">Meta (R$)</label><input id="goal-casa-target" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00" data-goal-id="casa" data-goal-field="target" /></div>
+                <div><label for="goal-casa-saved">Extra manual (R$)</label><input id="goal-casa-saved" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00" data-goal-id="casa" data-goal-field="saved" /></div>
+              </div>
+              <p id="inv-goal-aportes-casa" class="muted small" style="margin:0"></p>
+              <div class="bar inv-goal-bar" data-goal-bar="casa"><span></span></div>
+              <p id="inv-goal-pct-casa" class="inv-goal-pct muted small"></p>
+            </div>
+            <div class="inv-goal-row">
+              <strong class="inv-goal-label">Apartamento</strong>
+              <div class="inv-goal-fields">
+                <div><label for="goal-apartamento-target">Meta (R$)</label><input id="goal-apartamento-target" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00" data-goal-id="apartamento" data-goal-field="target" /></div>
+                <div><label for="goal-apartamento-saved">Extra manual (R$)</label><input id="goal-apartamento-saved" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00" data-goal-id="apartamento" data-goal-field="saved" /></div>
+              </div>
+              <p id="inv-goal-aportes-apartamento" class="muted small" style="margin:0"></p>
+              <div class="bar inv-goal-bar" data-goal-bar="apartamento"><span></span></div>
+              <p id="inv-goal-pct-apartamento" class="inv-goal-pct muted small"></p>
+            </div>
+            <div class="inv-goal-row">
+              <strong class="inv-goal-label">Celular</strong>
+              <div class="inv-goal-fields">
+                <div><label for="goal-celular-target">Meta (R$)</label><input id="goal-celular-target" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00" data-goal-id="celular" data-goal-field="target" /></div>
+                <div><label for="goal-celular-saved">Extra manual (R$)</label><input id="goal-celular-saved" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00" data-goal-id="celular" data-goal-field="saved" /></div>
+              </div>
+              <p id="inv-goal-aportes-celular" class="muted small" style="margin:0"></p>
+              <div class="bar inv-goal-bar" data-goal-bar="celular"><span></span></div>
+              <p id="inv-goal-pct-celular" class="inv-goal-pct muted small"></p>
+            </div>
+            <div class="inv-goal-row">
+              <strong class="inv-goal-label">Consórcio</strong>
+              <div class="inv-goal-fields">
+                <div><label for="goal-consorcio-target">Meta (R$)</label><input id="goal-consorcio-target" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00" data-goal-id="consorcio" data-goal-field="target" /></div>
+                <div><label for="goal-consorcio-saved">Extra manual (R$)</label><input id="goal-consorcio-saved" type="text" inputmode="decimal" autocomplete="off" placeholder="0,00" data-goal-id="consorcio" data-goal-field="saved" /></div>
+              </div>
+              <p id="inv-goal-aportes-consorcio" class="muted small" style="margin:0"></p>
+              <div class="bar inv-goal-bar" data-goal-bar="consorcio"><span></span></div>
+              <p id="inv-goal-pct-consorcio" class="inv-goal-pct muted small"></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="section-title">
+            <div><h3>Registros de aportes</h3><p>Lista detalhada para editar ou excluir</p></div>
+            <button type="button" class="btn primary" id="btnAddInvInline">Novo investimento</button>
+          </div>
+          <div class="table-wrap" id="investmentsTable"></div>
+        </div>
+      </section>
+
+      <section id="view-reports" class="hidden" aria-labelledby="pageTitle">
+        <div class="grid">
+          <div class="card report-layout-wide">
+            <div class="section-title"><div><h3>Resumo por banco</h3><p>Entradas, saídas e saldo</p></div></div>
+            <div class="table-wrap" id="reportByBank"></div>
+          </div>
+          <div class="card report-layout-narrow">
+            <div class="section-title"><div><h3>Resumo por categoria</h3><p>Onde há mais movimento</p></div></div>
+            <div class="table-wrap" id="reportByCategory"></div>
+          </div>
+          <div class="card report-monthly-row">
+            <div class="section-title report-analysis-head">
+              <div>
+                <h3>Análise mensal e anual</h3>
+                <p class="report-analysis-desc">
+                  <strong>Anual:</strong> receitas e despesas por <strong>vencimento</strong>; coluna <strong>Investimentos</strong> soma aportes pela <strong>data do aporte</strong>. Saldo do mês = receitas − despesas (caixa).<br />
+                  <strong>Mensal:</strong> receitas e despesas com vencimento naquele mês; <strong>investimentos</strong> pela <strong>data do aporte</strong> (lançamento).
+                </p>
+              </div>
+              <div class="report-analysis-controls">
+                <div class="report-analysis-field">
+                  <label for="reportMode">Visualização</label>
+                  <select id="reportMode" class="year-select">
+                    <option value="annual">Anual</option>
+                    <option value="monthly">Mensal</option>
+                  </select>
+                </div>
+                <div class="report-analysis-field">
+                  <label for="reportYear">Ano</label>
+                  <select id="reportYear" class="year-select"></select>
+                </div>
+                <div id="reportMonthWrap" class="report-analysis-field report-month-field hidden">
+                  <label for="reportMonth">Mês</label>
+                  <select id="reportMonth" class="year-select"></select>
+                </div>
+              </div>
+            </div>
+            <div id="reportMonthly" class="report-monthly-body"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-settings" class="hidden" aria-labelledby="pageTitle">
+        <div class="card" style="margin-bottom:18px">
+          <div class="section-title"><div><h3>Proteção por senha</h3><p>Cifra os dados no <strong>localStorage</strong> deste navegador (AES-GCM + PBKDF2). Não substitui um servidor nem impede acesso técnico avançado ao dispositivo.</p></div></div>
+          <p id="authProtectStatus" class="muted" style="margin:0 0 14px;line-height:1.6"></p>
+          <div id="authEnableWrap" class="auth-settings-grid">
+            <div>
+              <label for="authNewPw1">Nova senha (mín. 6 caracteres)</label>
+              <input id="authNewPw1" type="password" autocomplete="new-password" />
+            </div>
+            <div>
+              <label for="authNewPw2">Confirmar senha</label>
+              <input id="authNewPw2" type="password" autocomplete="new-password" />
+            </div>
+            <div class="auth-settings-actions">
+              <button type="button" class="btn primary" id="btnAuthEnable">Ativar proteção</button>
+            </div>
+          </div>
+          <div id="authDisableWrap" class="auth-settings-grid hidden">
+            <div>
+              <label for="authCurrentPw">Senha atual</label>
+              <input id="authCurrentPw" type="password" autocomplete="current-password" />
+            </div>
+            <div class="auth-settings-actions">
+              <button type="button" class="btn danger" id="btnAuthDisable">Remover proteção</button>
+            </div>
+          </div>
+          <p class="footer-note" style="margin-top:14px">Em cada aba nova será pedida a senha. Use <strong>Sair</strong> na barra lateral para bloquear sem fechar o browser.</p>
+        </div>
+        <div class="card" style="margin-bottom:18px">
+          <div class="section-title"><div><h3>Meta no Dashboard</h3><p>A barra ao lado de «Patrimônio total» mede só <strong>aportes no ano</strong> face à meta definida em <strong>Investimentos</strong>.</p></div></div>
+          <p class="footer-note" style="margin-top:0">Em <strong>Investimentos</strong>, use o campo «Meta de aportes no ano (R$)». O valor entra no backup JSON com os restantes dados.</p>
+        </div>
+        <div class="two-col">
+          <div class="card">
+            <div class="section-title"><div><h3>Backup</h3><p>Exporte ou importe seus dados</p></div></div>
+            <div class="actions">
+              <button type="button" class="btn primary" id="btnExportJson">Exportar JSON</button>
+              <button type="button" class="btn ghost" id="btnExportCsv">Exportar CSV</button>
+            </div>
+            <div class="actions" style="margin-top:12px">
+              <button type="button" class="btn ghost" id="btnSeed">Carregar exemplo</button>
+              <button type="button" class="btn ghost" id="btnLoadCatalogTop">Importar catálogo Brasil</button>
+            </div>
+            <div style="margin-top:14px"><label for="importJson">Importar backup JSON</label><input type="file" id="importJson" accept=".json,application/json" /></div>
+            <p class="footer-note">Guarde cópias fora do navegador. A importação substitui o estado atual.</p>
+          </div>
+          <div class="card">
+            <div class="section-title"><div><h3>Roadmap local</h3><p>Próximos passos possíveis</p></div></div>
+            <div class="muted" style="line-height:1.75;font-size:14px">
+              O backup JSON inclui <strong>bancos, lançamentos, investimentos e cadastros</strong>. Versões antigas sem esses blocos recebem valores padrão ao importar.
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="txnModal" role="dialog" aria-modal="true" aria-labelledby="txnModalTitle">
+    <div class="modal">
+      <div class="section-title" style="margin-bottom:18px">
+        <div>
+          <h3 id="txnModalTitle">Novo lançamento</h3>
+          <p id="txnModalSubtitle" class="txn-modal-subtitle">Escolha o tipo: campos mudam como na planilha (Receitas, Despesas ou Investimento).</p>
+        </div>
+        <button type="button" class="btn ghost" id="closeTxnModal">Fechar</button>
+      </div>
+      <div class="form-grid">
+        <input type="hidden" id="txnId" />
+        <div>
+          <label for="txnType">Tipo</label>
+          <select id="txnType">
+            <option value="entrada">Receita</option>
+            <option value="saida">Despesa</option>
+            <option value="investimento">Investimento</option>
+          </select>
+        </div>
+        <div id="txnBankWrap" class="hidden">
+          <label for="txnBank" id="txnBankLabel">Banco / conta</label>
+          <select id="txnBank"></select>
+        </div>
+        <div><label for="txnDate">Data</label><input id="txnDate" type="date" /></div>
+        <div><label for="txnAmount">Valor (R$)</label><input id="txnAmount" type="text" inputmode="decimal" placeholder="Ex.: 10.000,00" autocomplete="off" /></div>
+        <div id="txnDueDateWrap" class="hidden">
+          <label for="txnDueDate">Data de vencimento <span class="req-mark">*</span></label>
+          <input id="txnDueDate" type="date" autocomplete="off" />
+        </div>
+        <div id="txnExpenseKindWrap" class="hidden">
+          <label for="txnExpenseKind">Tipo (fixa / variável)</label>
+          <select id="txnExpenseKind">
+            <option value="">—</option>
+            <option value="fixa">Fixa</option>
+            <option value="variavel">Variável</option>
+          </select>
+        </div>
+        <div id="txnCategoryWrap">
+          <label for="txnCategory" id="txnCategoryLabel">Classificação</label>
+          <input id="txnCategory" list="txnCategoryList" placeholder="Ex.: Salário, Casa, Mercado…" autocomplete="off" />
+        </div>
+        <datalist id="txnCategoryList"></datalist>
+        <div id="txnStatusWrap">
+          <label for="txnStatus">Status</label>
+          <select id="txnStatus"></select>
+        </div>
+        <div id="txnMethodWrap">
+          <label for="txnMethod">Forma de pagamento</label>
+          <input id="txnMethod" placeholder="PIX, cartão, TED…" autocomplete="off" />
+        </div>
+        <div id="txnUnifiedInvWrap" class="txn-unified-inv-grid hidden">
+          <div class="full">
+            <label for="txnUnifiedInvGoal">Meta de compra (opcional)</label>
+            <select id="txnUnifiedInvGoal">
+              <option value="">— Nenhuma</option>
+              <option value="carro">Carro</option>
+              <option value="casa">Casa</option>
+              <option value="apartamento">Apartamento</option>
+              <option value="celular">Celular</option>
+              <option value="consorcio">Consórcio</option>
+            </select>
+          </div>
+          <div>
+            <label for="txnUnifiedInvType">Tipo de investimento</label>
+            <input id="txnUnifiedInvType" list="invTypeDatalist" placeholder="Lista do menu Cadastros" autocomplete="off" />
+          </div>
+          <div>
+            <label for="txnUnifiedInvYield">% rend. a.m. (opcional)</label>
+            <input id="txnUnifiedInvYield" type="number" step="0.01" min="0" placeholder="Ex.: 0,7" />
+          </div>
+          <div>
+            <label for="txnUnifiedInvMonths">Meses (opcional)</label>
+            <input id="txnUnifiedInvMonths" type="number" step="0.1" min="0" placeholder="Prazo" />
+          </div>
+        </div>
+        <div class="full">
+          <label for="txnDescription" id="txnDescriptionLabel">Descrição</label>
+          <textarea id="txnDescription" rows="3" placeholder="Detalhes (ex.: origem da receita, objeto da despesa…)" ></textarea>
+        </div>
+        <div class="full" style="display:flex; gap:10px; flex-wrap:wrap">
+          <button type="button" class="btn primary" id="saveTxn">Salvar</button>
+          <button type="button" class="btn danger hidden" id="deleteTxnInModal">Excluir</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="invModal" role="dialog" aria-modal="true" aria-labelledby="invModalTitle">
+    <div class="modal">
+      <div class="section-title" style="margin-bottom:18px">
+        <div><h3 id="invModalTitle">Novo investimento</h3><p>Registre aportes e rendimentos</p></div>
+        <button type="button" class="btn ghost" id="closeInvModal">Fechar</button>
+      </div>
+      <div class="form-grid">
+        <input type="hidden" id="invId" />
+        <div><label for="invDate">Data</label><input id="invDate" type="date" /></div>
+        <div><label for="invBank">Conta / banco</label><select id="invBank"></select></div>
+        <div><label for="invType">Tipo</label><input id="invType" list="invTypeDatalist" placeholder="Ex.: CDB" /></div>
+        <datalist id="invTypeDatalist"></datalist>
+        <div><label for="invInstitution">Instituição</label><input id="invInstitution" placeholder="Nome da corretora ou banco (pode repetir o da conta)" /></div>
+        <div><label for="invAmount">Valor (R$)</label><input id="invAmount" type="text" inputmode="decimal" placeholder="Ex.: 10.000,00" autocomplete="off" /></div>
+        <div><label for="invYieldPct">% rend. a.m. (opcional)</label><input id="invYieldPct" type="number" step="0.01" min="0" placeholder="Ex.: 0.7" /></div>
+        <div><label for="invMonths">Meses (opcional)</label><input id="invMonths" type="number" step="0.1" min="0" placeholder="Prazo" /></div>
+        <div class="full">
+          <label for="invSavingsGoal">Meta de compra (opcional)</label>
+          <select id="invSavingsGoal">
+            <option value="">— Nenhuma</option>
+            <option value="carro">Carro</option>
+            <option value="casa">Casa</option>
+            <option value="apartamento">Apartamento</option>
+            <option value="celular">Celular</option>
+            <option value="consorcio">Consórcio</option>
+          </select>
+        </div>
+        <div class="full"><label for="invNotes">Observações</label><input id="invNotes" placeholder="Opcional" /></div>
+        <div class="full" style="display:flex; gap:10px; flex-wrap:wrap">
+          <button type="button" class="btn primary" id="saveInv">Salvar</button>
+          <button type="button" class="btn danger hidden" id="deleteInvInModal">Excluir</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="bankModal" role="dialog" aria-modal="true" aria-labelledby="bankModalTitle">
+    <div class="modal">
+      <div class="section-title" style="margin-bottom:18px">
+        <div><h3 id="bankModalTitle">Editar banco</h3><p>Atualize os dados da conta</p></div>
+        <button type="button" class="btn ghost" id="closeBankModal">Fechar</button>
+      </div>
+      <div class="form-grid">
+        <input type="hidden" id="editBankId" />
+        <div class="full"><label for="editBankName">Nome</label><input id="editBankName" /></div>
+        <div><label for="editBankCode">Código FEBRABAN</label><input id="editBankCode" placeholder="Opcional" /></div>
+        <div><label for="editBankSegment">Segmento</label><input id="editBankSegment" placeholder="Opcional" /></div>
+        <div class="full"><label for="editBankAccountType">Tipo de conta</label><select id="editBankAccountType"><option value="Conta corrente">Conta corrente</option><option value="Conta poupança">Conta poupança</option><option value="Carteira">Carteira</option><option value="Investimento">Investimento</option><option value="Outro">Outro</option></select></div>
+        <div class="full"><label for="editBankNote">Observação <span class="field-hint">(máx. 500 caracteres)</span></label><input id="editBankNote" type="text" maxlength="500" autocomplete="off" /></div>
+        <div class="full" style="display:flex; gap:10px; flex-wrap:wrap">
+          <button type="button" class="btn primary" id="saveBankEdit">Salvar alterações</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-host" id="toastHost" aria-live="polite" aria-relevant="additions"></div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

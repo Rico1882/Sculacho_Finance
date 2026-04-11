@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.local
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist.zip
+*.zip
+*.xlsx
+*.xls
+finance-flow-local-catalogo/
+css/
+js/
+sculacho_ui_premium.html
+*aplicativo premium*
