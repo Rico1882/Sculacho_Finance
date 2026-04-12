@@ -58,6 +58,14 @@
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
           <span class="nav-label">Fluxo de Caixa</span>
         </button>
+        <button type="button" class="nav-btn" data-view="creditCards">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>
+          <span class="nav-label">Cartoes</span>
+        </button>
+        <button type="button" class="nav-btn" data-view="behavior">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20v-6"/><path d="M6 20V10"/><path d="M18 20V4"/><path d="M4 20h16"/></svg>
+          <span class="nav-label">Comportamento</span>
+        </button>
         <button type="button" class="nav-btn" data-view="budgets">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M13 16V8"/><path d="M18 16v-3"/></svg>
           <span class="nav-label">Orcamentos</span>
@@ -83,6 +91,16 @@
           <span class="nav-label">Dados e Seguranca</span>
         </button>
       </nav>
+      <aside class="sidebar-tip" id="sidebarTip" aria-live="polite">
+        <span>Dica rapida</span>
+        <strong>Registre o dia em uma frase.</strong>
+        <p>Use o Assistente local no Fluxo de Caixa para transformar texto em lancamento.</p>
+      </aside>
+      <aside class="sidebar-tip sidebar-tip-education" id="sidebarEducationTip">
+        <span>Inteligencia financeira</span>
+        <strong>Pequenos vazamentos contam.</strong>
+        <p>Compras pequenas repetidas podem pesar mais que uma despesa grande planejada.</p>
+      </aside>
       <div class="sidebar-footer">
         <button type="button" class="btn ghost auth-logout-btn" id="btnAuthLogout" hidden>Sair (pedir senha de novo)</button>
         <div class="sidebar-footer-copy">
@@ -117,6 +135,16 @@
             <span class="pill">Operacional</span>
           </div>
           <div class="decision-grid" id="dashboardDecisionCenter"></div>
+        </div>
+        <div class="card behavior-partner-card" aria-labelledby="behaviorPartnerTitle">
+          <div class="section-title section-title-premium">
+            <div>
+              <h3 id="behaviorPartnerTitle">Parceiro Financeiro</h3>
+              <p>Leitura comportamental para proteger seu caixa antes do impulso virar problema.</p>
+            </div>
+            <span class="pill">Comportamental</span>
+          </div>
+          <div class="behavior-partner-grid" id="behaviorPartner"></div>
         </div>
         <div class="card kpi-goal-card kpi-hero-card" aria-labelledby="kpiTotalPatrimonyLabel">
           <div class="kpi-hero-bento">
@@ -331,6 +359,175 @@
         <div class="card budgets-card">
           <div class="section-title"><div><h3>Orcamentos mensais</h3><p>Defina limites por categoria de despesa para receber alertas no dashboard.</p></div></div>
           <div id="budgetList" class="budget-list"></div>
+        </div>
+      </section>
+
+      <section id="view-behavior" class="hidden" aria-labelledby="pageTitle">
+        <div class="behavior-summary-grid">
+          <div class="card behavior-summary"><span>Gasto sensivel no mes</span><strong id="behaviorSensitiveTotal">R$ 0,00</strong><p>Fluxo de caixa + compras no cartao.</p></div>
+          <div class="card behavior-summary"><span>Habitos em atencao</span><strong id="behaviorRiskCount">0</strong><p>Categorias com repeticao, alta ou pressao.</p></div>
+          <div class="card behavior-summary"><span>Ultimos 7 dias</span><strong id="behaviorRecentCount">0</strong><p>Registros sensiveis recentes.</p></div>
+        </div>
+
+        <div class="card behavior-coach-card" style="margin-top:18px">
+          <div class="section-title section-title-premium">
+            <div><h3>Coach comportamental</h3><p>Leitura dos habitos que mais podem afetar seu caixa, fatura e metas.</p></div>
+            <span class="pill">Beta local</span>
+          </div>
+          <div id="behaviorHabitList" class="behavior-habit-list"></div>
+        </div>
+      </section>
+
+      <section id="view-creditCards" class="hidden" aria-labelledby="pageTitle">
+        <div class="credit-kpis">
+          <div class="card credit-kpi"><span>Limite total</span><strong id="creditLimitTotal">R$ 0,00</strong><p>Soma dos cartoes cadastrados</p></div>
+          <div class="card credit-kpi"><span>Limite usado</span><strong id="creditLimitUsed">R$ 0,00</strong><p>Compras ainda futuras ou abertas</p></div>
+          <div class="card credit-kpi"><span>Disponivel</span><strong id="creditLimitAvailable">R$ 0,00</strong><p>Limite restante estimado</p></div>
+          <div class="card credit-kpi"><span>Fatura atual</span><strong id="creditCurrentInvoice">R$ 0,00</strong><p id="creditCurrentInvoiceHint">Sem fatura aberta</p></div>
+        </div>
+
+        <div class="two-col credit-layout" style="margin-top:18px">
+          <div class="card credit-radar-card">
+            <div class="section-title"><div><h3>Radar do cartao</h3><p>Alertas praticos sobre limite, faturas e pressao no caixa.</p></div><span class="pill">Local</span></div>
+            <div id="creditRadar" class="credit-radar-list"></div>
+          </div>
+
+          <div class="card credit-simulator-card">
+            <div class="section-title"><div><h3>Simulador de parcelamento</h3><p>Veja o impacto antes de registrar a compra.</p></div></div>
+            <div class="form-grid">
+              <div>
+                <label for="creditSimCard">Cartao</label>
+                <select id="creditSimCard"></select>
+              </div>
+              <div>
+                <label for="creditSimDate">Data da compra</label>
+                <input id="creditSimDate" type="date" />
+              </div>
+              <div>
+                <label for="creditSimAmount">Valor total</label>
+                <input id="creditSimAmount" type="text" inputmode="decimal" placeholder="1.200,00" autocomplete="off" />
+              </div>
+              <div>
+                <label for="creditSimInstallments">Parcelas</label>
+                <input id="creditSimInstallments" type="number" min="1" max="120" value="1" />
+              </div>
+            </div>
+            <div id="creditSimulationResult" class="credit-sim-result"></div>
+          </div>
+        </div>
+
+        <div class="two-col credit-layout" style="margin-top:18px">
+          <div class="card">
+            <div class="section-title"><div><h3>Novo cartao</h3><p>Defina limite, fechamento e vencimento para calcular faturas.</p></div></div>
+            <div class="form-grid">
+              <div>
+                <label for="creditCardName">Nome do cartao</label>
+                <input id="creditCardName" type="text" placeholder="Ex.: Nubank Ultravioleta" autocomplete="off" />
+              </div>
+              <div>
+                <label for="creditCardBrand">Bandeira</label>
+                <select id="creditCardBrand">
+                  <option value="Visa">Visa</option>
+                  <option value="Mastercard">Mastercard</option>
+                  <option value="Elo">Elo</option>
+                  <option value="Amex">Amex</option>
+                  <option value="Outro">Outro</option>
+                </select>
+              </div>
+              <div>
+                <label for="creditCardLimit">Limite total</label>
+                <input id="creditCardLimit" type="text" inputmode="decimal" placeholder="5.000,00" autocomplete="off" />
+              </div>
+              <div>
+                <label for="creditCardBank">Conta vinculada</label>
+                <select id="creditCardBank"></select>
+              </div>
+              <div>
+                <label for="creditCardClosingDay">Fechamento</label>
+                <input id="creditCardClosingDay" type="number" min="1" max="31" value="25" />
+              </div>
+              <div>
+                <label for="creditCardDueDay">Vencimento</label>
+                <input id="creditCardDueDay" type="number" min="1" max="31" value="10" />
+              </div>
+              <div class="full">
+                <button type="button" class="btn primary" id="btnCreateCreditCard">Cadastrar cartao</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-title"><div><h3>Pagar fatura</h3><p>Registra o pagamento e cria a saida no Fluxo de Caixa.</p></div></div>
+            <div class="form-grid">
+              <div>
+                <label for="creditPaymentCard">Cartao</label>
+                <select id="creditPaymentCard"></select>
+              </div>
+              <div>
+                <label for="creditPaymentInvoice">Fatura</label>
+                <select id="creditPaymentInvoice"></select>
+              </div>
+              <div>
+                <label for="creditPaymentBank">Conta de pagamento</label>
+                <select id="creditPaymentBank"></select>
+              </div>
+              <div>
+                <label for="creditPaymentDate">Data do pagamento</label>
+                <input id="creditPaymentDate" type="date" />
+              </div>
+              <div>
+                <label for="creditPaymentAmount">Valor pago</label>
+                <input id="creditPaymentAmount" type="text" inputmode="decimal" placeholder="0,00" autocomplete="off" />
+              </div>
+              <div class="full">
+                <button type="button" class="btn primary" id="btnPayCreditInvoice">Pagar fatura</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-title"><div><h3>Nova compra</h3><p>Compras parceladas entram automaticamente nas proximas faturas.</p></div></div>
+            <div class="form-grid">
+              <div>
+                <label for="creditPurchaseCard">Cartao</label>
+                <select id="creditPurchaseCard"></select>
+              </div>
+              <div>
+                <label for="creditPurchaseDate">Data da compra</label>
+                <input id="creditPurchaseDate" type="date" />
+              </div>
+              <div>
+                <label for="creditPurchaseAmount">Valor total</label>
+                <input id="creditPurchaseAmount" type="text" inputmode="decimal" placeholder="300,00" autocomplete="off" />
+              </div>
+              <div>
+                <label for="creditPurchaseInstallments">Parcelas</label>
+                <input id="creditPurchaseInstallments" type="number" min="1" max="120" value="1" />
+              </div>
+              <div>
+                <label for="creditPurchaseCategory">Categoria</label>
+                <input id="creditPurchaseCategory" type="text" list="creditCategoryList" placeholder="Ex.: Alimentacao" autocomplete="off" />
+                <datalist id="creditCategoryList"></datalist>
+              </div>
+              <div>
+                <label for="creditPurchaseDescription">Descricao</label>
+                <input id="creditPurchaseDescription" type="text" placeholder="Ex.: Mercado" autocomplete="off" />
+              </div>
+              <div class="full">
+                <button type="button" class="btn primary" id="btnCreateCreditPurchase">Registrar compra</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:18px">
+          <div class="section-title"><div><h3>Cartoes cadastrados</h3><p>Limite, ciclo de fatura e uso estimado.</p></div></div>
+          <div id="creditCardsList" class="list"></div>
+        </div>
+
+        <div class="card" style="margin-top:18px">
+          <div class="section-title"><div><h3>Fatura atual e proximas parcelas</h3><p>Previsao calculada por fechamento, vencimento e parcelas.</p></div></div>
+          <div class="table-wrap" id="creditInvoicesTable"></div>
         </div>
       </section>
 
@@ -666,6 +863,21 @@
         <div class="full" style="display:flex; gap:10px; flex-wrap:wrap">
           <button type="button" class="btn primary" id="saveBankEdit">Salvar alterações</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop behavior-guard-backdrop" id="behaviorGuardModal" role="dialog" aria-modal="true" aria-labelledby="behaviorGuardTitle">
+    <div class="modal behavior-guard-modal">
+      <div class="behavior-guard-icon" aria-hidden="true">!</div>
+      <div>
+        <span class="eyebrow">Pausa inteligente</span>
+        <h3 id="behaviorGuardTitle">Antes de registrar</h3>
+        <p id="behaviorGuardMessage">Esse gasto pode afetar um limite de comportamento.</p>
+      </div>
+      <div class="behavior-guard-actions">
+        <button type="button" class="btn ghost" id="behaviorGuardCancel">Revisar antes</button>
+        <button type="button" class="btn primary" id="behaviorGuardConfirm">Registrar mesmo assim</button>
       </div>
     </div>
   </div>

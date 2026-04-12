@@ -62,10 +62,43 @@ export interface SavingsGoalEntry {
   saved: number;
 }
 
+export interface CreditCard {
+  id: string;
+  name: string;
+  bankId?: string;
+  brand: string;
+  limit: number;
+  closingDay: number;
+  dueDay: number;
+}
+
+export interface CreditCardPurchase {
+  id: string;
+  cardId: string;
+  date: string;
+  description: string;
+  category: string;
+  amount: number;
+  installments: number;
+}
+
+export interface CreditCardPayment {
+  id: string;
+  cardId: string;
+  invoiceDueDate: string;
+  bankId: string;
+  date: string;
+  amount: number;
+  transactionId: string;
+}
+
 export interface AppState {
   banks: Bank[];
   transactions: Transaction[];
   investments: Investment[];
+  creditCards: CreditCard[];
+  creditCardPurchases: CreditCardPurchase[];
+  creditCardPayments: CreditCardPayment[];
   catalog: AppCatalog;
   /** Legado: importação preserva o valor; a UI usa apenas annualInvestmentGoal para a meta no Dashboard. */
   annualPatrimonyGoal: number;
@@ -75,11 +108,15 @@ export interface AppState {
   savingsGoals: Record<SavingsGoalId, SavingsGoalEntry>;
   /** Limites mensais por categoria de despesa. */
   monthlyBudgets: Record<string, number>;
+  /** Limites mensais por habito monitorado no menu Comportamento. */
+  behaviorLimits: Record<string, number>;
 }
 
 export const VIEWS = [
   'dashboard',
   'transactions',
+  'creditCards',
+  'behavior',
   'budgets',
   'banks',
   'cadastros',

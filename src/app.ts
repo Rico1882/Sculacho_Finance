@@ -3,6 +3,9 @@ import type {
   AppCatalog,
   AppState,
   Bank,
+  CreditCard,
+  CreditCardPayment,
+  CreditCardPurchase,
   ExpenseKind,
   Investment,
   SavingsGoalId,
@@ -57,11 +60,15 @@ const defaultData: AppState = {
   banks: [],
   transactions: [],
   investments: [],
+  creditCards: [],
+  creditCardPurchases: [],
+  creditCardPayments: [],
   catalog: structuredClone(DEFAULT_CATALOG),
   annualPatrimonyGoal: 0,
   annualInvestmentGoal: 0,
   savingsGoals: structuredClone(EMPTY_SAVINGS_GOALS),
   monthlyBudgets: {},
+  behaviorLimits: {},
 };
 
 function mergeSavingsGoals(raw: unknown): AppState['savingsGoals'] {
@@ -101,6 +108,86 @@ function normalizeBudgetMap(raw: unknown): Record<string, number> {
   return out;
 }
 
+function normalizeDay(raw: unknown, fallback: number): number {
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(31, Math.max(1, Math.round(n)));
+}
+
+function normalizeCreditCards(raw: unknown): CreditCard[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item): CreditCard | null => {
+      if (!item || typeof item !== 'object') return null;
+      const o = item as Record<string, unknown>;
+      const id = typeof o.id === 'string' && o.id.trim() ? o.id : uid();
+      const name = typeof o.name === 'string' ? o.name.trim() : '';
+      if (!name) return null;
+      const limit = typeof o.limit === 'number' && Number.isFinite(o.limit) && o.limit >= 0 ? o.limit : 0;
+      return {
+        id,
+        name,
+        ...(typeof o.bankId === 'string' && o.bankId ? { bankId: o.bankId } : {}),
+        brand: typeof o.brand === 'string' && o.brand.trim() ? o.brand.trim() : 'Nao informado',
+        limit: Math.round(limit * 100) / 100,
+        closingDay: normalizeDay(o.closingDay, 25),
+        dueDay: normalizeDay(o.dueDay, 10),
+      };
+    })
+    .filter((x): x is CreditCard => x !== null);
+}
+
+function normalizeCreditCardPurchases(raw: unknown): CreditCardPurchase[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item): CreditCardPurchase | null => {
+      if (!item || typeof item !== 'object') return null;
+      const o = item as Record<string, unknown>;
+      const cardId = typeof o.cardId === 'string' ? o.cardId : '';
+      const date = typeof o.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.date) ? o.date : '';
+      const amount = typeof o.amount === 'number' && Number.isFinite(o.amount) && o.amount > 0 ? o.amount : 0;
+      if (!cardId || !date || amount <= 0) return null;
+      const installmentsRaw = typeof o.installments === 'number' ? o.installments : Number(o.installments);
+      const installments = Number.isFinite(installmentsRaw) ? Math.min(120, Math.max(1, Math.round(installmentsRaw))) : 1;
+      return {
+        id: typeof o.id === 'string' && o.id.trim() ? o.id : uid(),
+        cardId,
+        date,
+        description: typeof o.description === 'string' ? o.description.trim().slice(0, 500) : '',
+        category: typeof o.category === 'string' ? o.category.trim() : '',
+        amount: Math.round(amount * 100) / 100,
+        installments,
+      };
+    })
+    .filter((x): x is CreditCardPurchase => x !== null);
+}
+
+function normalizeCreditCardPayments(raw: unknown): CreditCardPayment[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item): CreditCardPayment | null => {
+      if (!item || typeof item !== 'object') return null;
+      const o = item as Record<string, unknown>;
+      const cardId = typeof o.cardId === 'string' ? o.cardId : '';
+      const bankId = typeof o.bankId === 'string' ? o.bankId : '';
+      const date = typeof o.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.date) ? o.date : '';
+      const invoiceDueDate =
+        typeof o.invoiceDueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.invoiceDueDate) ? o.invoiceDueDate : '';
+      const amount = typeof o.amount === 'number' && Number.isFinite(o.amount) && o.amount > 0 ? o.amount : 0;
+      if (!cardId || !bankId || !date || !invoiceDueDate || amount <= 0) return null;
+      return {
+        id: typeof o.id === 'string' && o.id.trim() ? o.id : uid(),
+        cardId,
+        invoiceDueDate,
+        bankId,
+        date,
+        amount: Math.round(amount * 100) / 100,
+        transactionId: typeof o.transactionId === 'string' ? o.transactionId : '',
+      };
+    })
+    .filter((x): x is CreditCardPayment => x !== null);
+}
+
 function normalizeImportedState(o: Record<string, unknown>): AppState {
   const banks = Array.isArray(o.banks) ? (o.banks as Bank[]) : [];
   const rawTx = Array.isArray(o.transactions) ? (o.transactions as Transaction[]) : [];
@@ -134,15 +221,27 @@ function normalizeImportedState(o: Record<string, unknown>): AppState {
   }
   const savingsGoals = mergeSavingsGoals(o.savingsGoals);
   const monthlyBudgets = normalizeBudgetMap(o.monthlyBudgets);
+  const behaviorLimits = normalizeBudgetMap(o.behaviorLimits);
+  const creditCards = normalizeCreditCards(o.creditCards);
+  const creditCardPurchases = normalizeCreditCardPurchases(o.creditCardPurchases).filter((p) =>
+    creditCards.some((card) => card.id === p.cardId)
+  );
+  const creditCardPayments = normalizeCreditCardPayments(o.creditCardPayments).filter(
+    (p) => creditCards.some((card) => card.id === p.cardId) && banks.some((bank) => bank.id === p.bankId)
+  );
   return {
     banks,
     transactions,
     investments,
+    creditCards,
+    creditCardPurchases,
+    creditCardPayments,
     catalog,
     annualPatrimonyGoal,
     annualInvestmentGoal,
     savingsGoals,
     monthlyBudgets,
+    behaviorLimits,
   };
 }
 
@@ -158,7 +257,10 @@ let cashflowFilter: CashflowFilter = 'all';
 type CsvImportRow = { tx: Transaction; duplicate: boolean; rawDescription: string };
 let pendingCsvImport: CsvImportRow[] = [];
 type AssistantDraft = { tx: Transaction; missing: string[]; confidence: number; source: string };
+type AssistantCreditDraft = { purchase: CreditCardPurchase; missing: string[]; confidence: number; source: string };
 let assistantDraft: AssistantDraft | null = null;
+let assistantCreditDraft: AssistantCreditDraft | null = null;
+let behaviorGuardResolver: ((ok: boolean) => void) | null = null;
 
 async function loadStateFromDisk(): Promise<AppState> {
   const raw = localStorage.getItem(FINANCE_STORAGE_KEY);
@@ -732,6 +834,427 @@ function dashboardDecisionItemHtml(kind: 'ok' | 'warn' | 'info', label: string, 
   return `<article class="decision-item decision-item--${kind}"><span class="decision-label">${esc(label)}</span><strong>${esc(value)}</strong><p>${esc(detail)}</p></article>`;
 }
 
+type BehaviorSignal = {
+  kind: 'ok' | 'warn' | 'info';
+  title: string;
+  metric: string;
+  detail: string;
+  advice: string;
+};
+
+type BehaviorSpend = {
+  date: string;
+  amount: number;
+  label: string;
+  source: 'fluxo' | 'cartao';
+};
+
+const SENSITIVE_BEHAVIOR_RULES = [
+  {
+    key: 'apostas',
+    label: 'Apostas e jogos',
+    terms: ['aposta', 'apostas', 'bet', 'bets', 'cassino', 'casino', 'jogo online', 'tigrinho', 'blaze', 'bet365', 'pixbet'],
+    advice: 'Se isso apareceu de novo, vale definir um limite zero ou um teto semanal e pausar novos depósitos por 24 horas.',
+  },
+  {
+    key: 'impulso',
+    label: 'Compras por impulso',
+    terms: ['impulso', 'shopping', 'loja', 'amazon', 'mercado livre', 'shein', 'shopee', 'aliexpress', 'roupa', 'tenis'],
+    advice: 'Antes da proxima compra, deixe no carrinho por 20 minutos e confirme se ela cabe na fatura aberta.',
+  },
+  {
+    key: 'delivery',
+    label: 'Delivery e comida pronta',
+    terms: ['ifood', 'delivery', 'restaurante', 'lanche', 'pizza', 'hamburguer', 'padaria', 'comida'],
+    advice: 'Tente escolher um teto semanal para delivery. Pequenas compras repetidas costumam pesar sem parecer.',
+  },
+  {
+    key: 'assinaturas',
+    label: 'Assinaturas e recorrencias',
+    terms: ['assinatura', 'netflix', 'spotify', 'prime', 'disney', 'hbo', 'recorrente', 'mensalidade'],
+    advice: 'Revise se essa assinatura ainda entrega valor. Cancelar uma recorrencia pequena libera caixa todos os meses.',
+  },
+  {
+    key: 'lazer',
+    label: 'Lazer e saidas',
+    terms: ['bar', 'balada', 'bebida', 'cerveja', 'show', 'cinema', 'lazer'],
+    advice: 'Se o lazer subiu, preserve uma verba fixa para curtir sem invadir dinheiro de meta ou fatura.',
+  },
+];
+
+function behaviorItemHtml(signal: BehaviorSignal): string {
+  return `<article class="behavior-item behavior-item--${signal.kind}"><span>${esc(signal.title)}</span><strong>${esc(signal.metric)}</strong><p>${esc(signal.detail)}</p><small>${esc(signal.advice)}</small></article>`;
+}
+
+function monthBoundsFromOffset(offset: number): { start: string; end: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + offset;
+  return {
+    start: new Date(y, m, 1, 12).toISOString().slice(0, 10),
+    end: new Date(y, m + 1, 0, 12).toISOString().slice(0, 10),
+  };
+}
+
+function behaviorSpendText(s: BehaviorSpend): string {
+  return normalizeAssistantText(s.label);
+}
+
+function behaviorSpendRows(): BehaviorSpend[] {
+  const txRows: BehaviorSpend[] = state.transactions
+    .filter((t) => t.type === 'saida')
+    .map((t) => ({
+      date: t.date || t.dueDate || '',
+      amount: Number(t.amount ?? 0),
+      label: `${t.category ?? ''} ${t.description ?? ''} ${t.method ?? ''}`,
+      source: 'fluxo',
+    }));
+  const cardRows: BehaviorSpend[] = state.creditCardPurchases.map((p) => ({
+    date: p.date,
+    amount: Number(p.amount ?? 0),
+    label: `${p.category ?? ''} ${p.description ?? ''}`,
+    source: 'cartao',
+  }));
+  return [...txRows, ...cardRows].filter((r) => r.date && r.amount > 0);
+}
+
+function sumBehaviorSpends(rows: BehaviorSpend[], start: string, end: string): number {
+  return rows.filter((r) => r.date >= start && r.date <= end).reduce((sum, r) => sum + r.amount, 0);
+}
+
+function behaviorHabitRows(): {
+  key: string;
+  label: string;
+  current: number;
+  previous: number;
+  limit: number;
+  pct: number;
+  recentCount: number;
+  countMonth: number;
+  kind: 'ok' | 'warn' | 'info';
+  advice: string;
+}[] {
+  const rows = behaviorSpendRows();
+  const today = new Date().toISOString().slice(0, 10);
+  const weekStart = addDaysIso(today, -6);
+  const currentBounds = monthBoundsFromOffset(0);
+  const previousBounds = monthBoundsFromOffset(-1);
+  return SENSITIVE_BEHAVIOR_RULES.map((rule) => {
+    const matches = rows.filter((r) => rule.terms.some((term) => behaviorSpendText(r).includes(term)));
+    const current = sumBehaviorSpends(matches, currentBounds.start, currentBounds.end);
+    const previous = sumBehaviorSpends(matches, previousBounds.start, previousBounds.end);
+    const recentCount = matches.filter((r) => r.date >= weekStart && r.date <= today).length;
+    const countMonth = matches.filter((r) => r.date >= currentBounds.start && r.date <= currentBounds.end).length;
+    const growth = previous > 0 ? ((current - previous) / previous) * 100 : 0;
+    const limit = state.behaviorLimits[rule.key] ?? 0;
+    const pct = limit > 0 ? (current / limit) * 100 : 0;
+    const kind: 'ok' | 'warn' | 'info' =
+      limit > 0 && pct >= 100
+        ? 'warn'
+        : rule.key === 'apostas' && current > 0
+          ? 'warn'
+          : recentCount >= 3 || growth >= 40 || current >= 300 || (limit > 0 && pct >= 80)
+            ? 'warn'
+            : current > 0
+              ? 'info'
+              : 'ok';
+    return {
+      key: rule.key,
+      label: rule.label,
+      current,
+      previous,
+      limit,
+      pct,
+      recentCount,
+      countMonth,
+      kind,
+      advice:
+        limit > 0 && pct >= 100
+          ? 'O limite combinado foi estourado. Pause novas compras nesse habito e revise o que disparou esse comportamento.'
+          : current > 0
+            ? rule.advice
+            : 'Sem sinal relevante agora. Continue registrando para melhorar a leitura.',
+    };
+  });
+}
+
+function renderBehaviorView(): void {
+  const list = document.getElementById('behaviorHabitList');
+  if (!list) return;
+  const rows = behaviorHabitRows();
+  const sensitiveTotal = rows.reduce((sum, row) => sum + row.current, 0);
+  const riskCount = rows.filter((row) => row.kind === 'warn').length;
+  const recentCount = rows.reduce((sum, row) => sum + row.recentCount, 0);
+  getEl('behaviorSensitiveTotal').textContent = brl(sensitiveTotal);
+  getEl('behaviorRiskCount').textContent = String(riskCount);
+  getEl('behaviorRecentCount').textContent = String(recentCount);
+  list.innerHTML = rows
+    .map((row) => {
+      const delta = row.previous > 0 ? ((row.current - row.previous) / row.previous) * 100 : null;
+      const deltaText = delta == null ? 'Sem base anterior' : `${delta >= 0 ? '+' : ''}${Math.round(delta)}% vs mes anterior`;
+      const status =
+        row.limit > 0 && row.pct >= 100 ? 'Estourado' : row.kind === 'warn' ? 'Atencao' : row.kind === 'info' ? 'Monitorar' : 'Controlado';
+      const limitLine = row.limit > 0 ? `${Math.round(row.pct)}% do limite de ${brl(row.limit)}` : 'Defina um limite mensal';
+      return `<article class="behavior-habit behavior-habit--${row.kind}"><div><span>${esc(status)}</span><h3>${esc(row.label)}</h3><p>${esc(row.advice)}</p><div class="behavior-limit-field"><label for="behavior-limit-${esc(row.key)}">Limite mensal</label><input id="behavior-limit-${esc(row.key)}" data-behavior-limit="${esc(row.key)}" type="text" inputmode="decimal" placeholder="0,00" value="${row.limit > 0 ? esc(formatMoneyInputBR(row.limit)) : ''}" /></div></div><div class="behavior-habit-metrics"><strong>${brl(row.current)}</strong><small>${esc(limitLine)}</small><small>${esc(deltaText)}</small><small>${row.countMonth} registro(s) no mes - ${row.recentCount} nos ultimos 7 dias</small></div></article>`;
+    })
+    .join('');
+}
+
+function persistBehaviorLimitFromInput(input: HTMLInputElement): void {
+  const key = input.dataset.behaviorLimit;
+  if (!key) return;
+  const amount = moneyAmountFromUserInput(input.value);
+  if (amount > 0) {
+    state.behaviorLimits[key] = amount;
+    input.value = formatMoneyInputBR(amount);
+  } else {
+    delete state.behaviorLimits[key];
+    input.value = '';
+  }
+  renderAll();
+  toast('Limite de habito atualizado.', 'success');
+}
+
+function behaviorGuardForSpend(label: string, amount: number, date: string): string | null {
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const text = normalizeAssistantText(label);
+  const currentBounds = monthBoundsFromOffset(0);
+  const rows = behaviorSpendRows();
+  for (const rule of SENSITIVE_BEHAVIOR_RULES) {
+    if (!rule.terms.some((term) => text.includes(term))) continue;
+    const limit = state.behaviorLimits[rule.key] ?? 0;
+    const matches = rows.filter((r) => rule.terms.some((term) => behaviorSpendText(r).includes(term)));
+    const monthTotal = sumBehaviorSpends(matches, currentBounds.start, currentBounds.end);
+    const projected = date >= currentBounds.start && date <= currentBounds.end ? monthTotal + amount : monthTotal;
+    const pct = limit > 0 ? (projected / limit) * 100 : 0;
+    if (limit > 0 && pct >= 100) {
+      return `Pausa rapida: ${rule.label} chegaria a ${brl(projected)}, passando do limite mensal de ${brl(limit)}. Quer registrar mesmo assim?`;
+    }
+    if (limit > 0 && pct >= 80) {
+      return `Pausa rapida: ${rule.label} ficaria em ${Math.round(pct)}% do limite mensal. Quer registrar mesmo assim?`;
+    }
+    if (rule.key === 'apostas') {
+      return `Pausa rapida: esse gasto parece entrar em ${rule.label}. Se for impulso, vale esperar alguns minutos antes de confirmar. Registrar mesmo assim?`;
+    }
+    const recentStart = addDaysIso(new Date().toISOString().slice(0, 10), -6);
+    const recent = matches.filter((r) => r.date >= recentStart).length;
+    if (recent >= 2) {
+      return `Pausa rapida: ${rule.label} ja apareceu ${recent} vez(es) nos ultimos 7 dias. Quer registrar mais este gasto?`;
+    }
+  }
+  return null;
+}
+
+function closeBehaviorGuardModal(ok: boolean): void {
+  getEl('behaviorGuardModal').classList.remove('open');
+  const resolver = behaviorGuardResolver;
+  behaviorGuardResolver = null;
+  if (resolver) resolver(ok);
+}
+
+function askBehaviorGuard(message: string): Promise<boolean> {
+  getEl('behaviorGuardMessage').textContent = message;
+  getEl('behaviorGuardModal').classList.add('open');
+  getEl<HTMLButtonElement>('behaviorGuardConfirm').focus();
+  return new Promise((resolve) => {
+    behaviorGuardResolver = resolve;
+  });
+}
+
+async function confirmBehaviorGuard(label: string, amount: number, date: string): Promise<boolean> {
+  const message = behaviorGuardForSpend(label, amount, date);
+  return !message || askBehaviorGuard(message);
+}
+
+function renderBehaviorPartner(): void {
+  const box = document.getElementById('behaviorPartner');
+  if (!box) return;
+  const rows = behaviorSpendRows();
+  if (!rows.length) {
+    box.innerHTML =
+      '<div class="empty">Registre despesas e compras no cartao para o Sculacho começar a perceber seus padroes.</div>';
+    return;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const weekStart = addDaysIso(today, -6);
+  const current = monthBoundsFromOffset(0);
+  const previous = monthBoundsFromOffset(-1);
+  const signals: BehaviorSignal[] = [];
+
+  for (const rule of SENSITIVE_BEHAVIOR_RULES) {
+    const matches = rows.filter((r) => rule.terms.some((term) => behaviorSpendText(r).includes(term)));
+    if (!matches.length) continue;
+    const monthTotal = sumBehaviorSpends(matches, current.start, current.end);
+    const prevTotal = sumBehaviorSpends(matches, previous.start, previous.end);
+    const recent = matches.filter((r) => r.date >= weekStart && r.date <= today);
+    if (recent.length >= 3 || monthTotal >= 300 || rule.key === 'apostas') {
+      const growth = prevTotal > 0 ? ((monthTotal - prevTotal) / prevTotal) * 100 : null;
+      signals.push({
+        kind: rule.key === 'apostas' || recent.length >= 3 || (growth != null && growth >= 40) ? 'warn' : 'info',
+        title: rule.label,
+        metric: `${brl(monthTotal)} no mes`,
+        detail:
+          growth != null
+            ? `${recent.length} registro(s) nos ultimos 7 dias; variacao de ${Math.round(growth)}% contra o mes anterior.`
+            : `${recent.length} registro(s) nos ultimos 7 dias. Ainda nao ha base do mes anterior.`,
+        advice: rule.advice,
+      });
+    }
+  }
+
+  const budgetRisk = budgetUsageRows().find((row) => row.pct >= 80);
+  if (budgetRisk) {
+    signals.push({
+      kind: budgetRisk.pct >= 100 ? 'warn' : 'info',
+      title: 'Orcamento sensivel',
+      metric: `${Math.round(budgetRisk.pct)}% usado`,
+      detail: `${budgetRisk.category} ja consumiu ${brl(budgetRisk.used)} de ${brl(budgetRisk.limit)} neste mes.`,
+      advice: 'Trate esse limite como um acordo consigo mesmo. Ate virar o mes, evite novas compras nessa categoria.',
+    });
+  }
+
+  const cardLines = typeof creditInvoiceLines === 'function' ? creditInvoiceLines() : [];
+  const currentDue = cardLines.length ? currentCreditInvoiceDue(cardLines) : null;
+  const avgIncome = averageMonthlyIncome();
+  if (currentDue && avgIncome > 0) {
+    const open = state.creditCards.reduce((sum, card) => sum + creditInvoiceOpenAmount(card.id, currentDue, cardLines), 0);
+    const pressure = (open / avgIncome) * 100;
+    if (pressure >= 25) {
+      signals.push({
+        kind: pressure >= 40 ? 'warn' : 'info',
+        title: 'Fatura pressionando renda',
+        metric: `${Math.round(pressure)}% da renda media`,
+        detail: `A proxima fatura em aberto esta em ${brl(open)} para ${dateBR(currentDue)}.`,
+        advice: 'Antes de parcelar de novo, simule a compra no menu Cartoes e veja se a proxima fatura continua confortavel.',
+      });
+    }
+  }
+
+  const smallRecent = rows.filter((r) => r.date >= weekStart && r.date <= today && r.amount <= 80);
+  const smallTotal = smallRecent.reduce((sum, r) => sum + r.amount, 0);
+  if (smallRecent.length >= 5 && smallTotal >= 150) {
+    signals.push({
+      kind: 'info',
+      title: 'Compras pequenas repetidas',
+      metric: `${brl(smallTotal)} em 7 dias`,
+      detail: `${smallRecent.length} compras pequenas detectadas. Elas costumam passar despercebidas no dia a dia.`,
+      advice: 'Agrupe essas compras em uma categoria e defina um teto semanal para reduzir vazamento de caixa.',
+    });
+  }
+
+  if (!signals.length) {
+    signals.push({
+      kind: 'ok',
+      title: 'Sem padrao critico agora',
+      metric: 'Ritmo controlado',
+      detail: 'Nao encontrei repeticao sensivel ou pressao forte com os dados atuais.',
+      advice: 'Continue registrando as compras. Quanto mais historico, melhores ficam os alertas.',
+    });
+  }
+
+  const coachingCards: BehaviorSignal[] = [
+    {
+      kind: 'info',
+      title: 'Regra dos 20 minutos',
+      metric: 'Pausa antes da compra',
+      detail: 'Quando parecer impulso, espere um pouco antes de pagar.',
+      advice: 'Se depois da pausa ainda fizer sentido e couber no limite, registre com tranquilidade.',
+    },
+    {
+      kind: 'info',
+      title: 'Limite de protecao',
+      metric: 'Teto por habito',
+      detail: 'Delivery, apostas e compras online ficam mais leves quando têm um limite mensal visivel.',
+      advice: 'Use o menu Comportamento para combinar limites consigo mesmo.',
+    },
+    {
+      kind: 'ok',
+      title: 'Meta protegida',
+      metric: 'Decisao com proposito',
+      detail: 'Antes de parcelar, compare a compra com sua meta principal.',
+      advice: 'Se a compra afasta a meta, talvez ela mereca esperar.',
+    },
+  ];
+  for (const card of coachingCards) {
+    if (signals.length >= 4) break;
+    signals.push(card);
+  }
+
+  box.innerHTML = signals.slice(0, 4).map(behaviorItemHtml).join('');
+}
+
+function renderSidebarTip(): void {
+  const box = document.getElementById('sidebarTip');
+  if (!box) return;
+  const budgetRisk = budgetUsageRows().find((row) => row.pct >= 80);
+  if (budgetRisk) {
+    box.innerHTML = `<span>Atencao</span><strong>${esc(budgetRisk.category)} em ${Math.round(budgetRisk.pct)}%</strong><p>Segure novas compras nessa categoria ate virar o mes.</p>`;
+    return;
+  }
+  const cardLines = creditInvoiceLines();
+  const currentDue = currentCreditInvoiceDue(cardLines);
+  if (currentDue) {
+    const open = state.creditCards.reduce((sum, card) => sum + creditInvoiceOpenAmount(card.id, currentDue, cardLines), 0);
+    if (open > 0) {
+      box.innerHTML = `<span>Proxima acao</span><strong>Fatura de ${brl(open)}</strong><p>Vencimento ${dateBR(currentDue)}. Simule novas compras antes de parcelar.</p>`;
+      return;
+    }
+  }
+  const sensitiveRows = behaviorSpendRows().filter((row) =>
+    SENSITIVE_BEHAVIOR_RULES.some((rule) => rule.terms.some((term) => behaviorSpendText(row).includes(term)))
+  );
+  if (sensitiveRows.length) {
+    const last = [...sensitiveRows].sort((a, b) => b.date.localeCompare(a.date))[0];
+    box.innerHTML = `<span>Padrao observado</span><strong>${esc(last.label.slice(0, 34) || 'Gasto sensivel')}</strong><p>Vi um gasto sensivel recente. Vale definir um teto para se proteger.</p>`;
+    return;
+  }
+  const { balance } = computeTotals();
+  if (state.transactions.length || state.creditCardPurchases.length) {
+    box.innerHTML = `<span>Dica rapida</span><strong>${balance >= 0 ? 'Caixa positivo' : 'Caixa pressionado'}</strong><p>${balance >= 0 ? 'Antes de gastar, veja se cabe na meta ou na fatura.' : 'Revise despesas abertas antes de assumir novos compromissos.'}</p>`;
+    return;
+  }
+  box.innerHTML =
+    '<span>Dica rapida</span><strong>Registre o dia em uma frase.</strong><p>Use o Assistente local no Fluxo de Caixa para transformar texto em lancamento.</p>';
+}
+
+function renderSidebarEducationTip(): void {
+  const box = document.getElementById('sidebarEducationTip');
+  if (!box) return;
+  const budgetRisk = budgetUsageRows().find((row) => row.pct >= 80);
+  if (budgetRisk) {
+    box.innerHTML =
+      '<span>Inteligencia financeira</span><strong>Limite protege decisao.</strong><p>Quando uma categoria passa de 80%, trate novas compras nela como excecao, nao como rotina.</p>';
+    return;
+  }
+  const cardLines = creditInvoiceLines();
+  const currentDue = currentCreditInvoiceDue(cardLines);
+  const avgIncome = averageMonthlyIncome();
+  if (currentDue && avgIncome > 0) {
+    const open = state.creditCards.reduce((sum, card) => sum + creditInvoiceOpenAmount(card.id, currentDue, cardLines), 0);
+    const pressure = (open / avgIncome) * 100;
+    if (pressure >= 25) {
+      box.innerHTML =
+        '<span>Inteligencia financeira</span><strong>Fatura tambem e futuro.</strong><p>Evite parcelar quando a proxima fatura ja passa de 25% da sua renda media.</p>';
+      return;
+    }
+  }
+  const sensitiveRows = behaviorSpendRows().filter((row) =>
+    SENSITIVE_BEHAVIOR_RULES.some((rule) => rule.terms.some((term) => behaviorSpendText(row).includes(term)))
+  );
+  if (sensitiveRows.length) {
+    box.innerHTML =
+      '<span>Inteligencia financeira</span><strong>Impulso pede intervalo.</strong><p>Antes de repetir um gasto sensivel, espere 20 minutos e pergunte se isso aproxima ou afasta sua meta.</p>';
+    return;
+  }
+  if (state.investments.length || state.annualInvestmentGoal > 0) {
+    box.innerHTML =
+      '<span>Inteligencia financeira</span><strong>Meta precisa de ritmo.</strong><p>Uma meta forte combina valor, prazo e aporte minimo. O progresso pequeno consistente vence o improviso.</p>';
+    return;
+  }
+  box.innerHTML =
+    '<span>Inteligencia financeira</span><strong>Pequenos vazamentos contam.</strong><p>Compras pequenas repetidas podem pesar mais que uma despesa grande planejada.</p>';
+}
+
 function renderDashboardDecisionCenter(): void {
   const container = document.getElementById('dashboardDecisionCenter');
   if (!container) return;
@@ -829,6 +1352,7 @@ function renderKPIs(): void {
   renderPatrimonyGoalStrip();
   renderDashboardInsights();
   renderDashboardDecisionCenter();
+  renderBehaviorPartner();
 }
 
 function renderDashboardRecent(): void {
@@ -1068,34 +1592,62 @@ function parseCsvImport(text: string): CsvImportRow[] {
   const dueIdx = findCsvColumn(headers, ['vencimento', 'venc']);
   const descIdx = findCsvColumn(headers, ['descricao', 'descr', 'historico', 'memo', 'detalhe']);
   const amountIdx = findCsvColumn(headers, ['valor', 'amount', 'vlr']);
-  const typeIdx = findCsvColumn(headers, ['tipo', 'type', 'natureza']);
+  /** «Tipo» da planilha (Receita/Despesa). «Natureza» é fixa/variável (outro índice). */
+  const typeIdx = findCsvColumn(headers, ['tipo', 'type', 'fluxo', 'tipolancamento', 'entradasaida']);
+  const recIdx = findCsvColumn(headers, ['natureza', 'recorrencia', 'recorrente', 'fixo']);
   const catIdx = findCsvColumn(headers, ['categoria', 'category', 'classificacao']);
   const bankIdx = findCsvColumn(headers, ['banco', 'conta', 'bank']);
   if (dataIdx < 0 || amountIdx < 0) return [];
+  const today = new Date().toISOString().slice(0, 10);
   return rows.slice(1).flatMap((cols): CsvImportRow[] => {
     const date = parseCsvDate(cols[dataIdx] ?? '');
     const amountRaw = parseCsvMoney(cols[amountIdx] ?? '');
-    if (!date || !Number.isFinite(amountRaw) || amountRaw === 0) return [];
-    const typeRaw = (cols[typeIdx] ?? '').toLowerCase();
-    const type: TxnType =
-      typeRaw.includes('entrada') || typeRaw.includes('receita') || typeRaw.includes('credito') || amountRaw > 0
+    if (!date || !Number.isFinite(amountRaw) || amountRaw < 0) return [];
+    const typeRaw = typeIdx >= 0 ? (cols[typeIdx] ?? '').toLowerCase() : '';
+    const explicitSaida =
+      typeRaw.includes('despesa') || typeRaw.includes('saida') || typeRaw.includes('saída') || typeRaw.includes('debito');
+    const explicitEntrada =
+      typeRaw.includes('entrada') || typeRaw.includes('receita') || typeRaw.includes('credito');
+    const type: TxnType = explicitSaida
+      ? 'saida'
+      : explicitEntrada || amountRaw > 0
         ? 'entrada'
         : 'saida';
+    if (amountRaw === 0 && type === 'entrada') return [];
     const description = (cols[descIdx] ?? '').trim();
     const category = (cols[catIdx] ?? '').trim();
     const bankText = (cols[bankIdx] ?? '').trim().toLowerCase();
-    const bank = bankText ? state.banks.find((b) => bankOptionLabel(b).toLowerCase().includes(bankText) || b.name.toLowerCase().includes(bankText)) : undefined;
+    const bank = bankText
+      ? state.banks.find(
+          (b) => bankOptionLabel(b).toLowerCase().includes(bankText) || b.name.toLowerCase().includes(bankText)
+        )
+      : undefined;
+    const bankId = bank?.id ?? (state.banks.length === 1 ? state.banks[0]!.id : '');
+    const dueDate = dueIdx >= 0 ? parseCsvDate(cols[dueIdx] ?? '') || date : date;
+    const recRaw = (recIdx >= 0 ? cols[recIdx] ?? '' : '').toLowerCase();
+    let expenseKind: ExpenseKind | undefined;
+    if (recRaw.includes('vari')) expenseKind = 'variavel';
+    else if (recRaw.includes('fix')) expenseKind = 'fixa';
+    const status: TxnStatus | undefined =
+      type === 'entrada'
+        ? dueDate > today
+          ? 'a_receber'
+          : 'recebido'
+        : dueDate > today
+          ? 'a_vencer'
+          : 'pago';
     const tx: Transaction = {
       id: uid(),
-      bankId: bank?.id ?? '',
+      bankId,
       type,
       amount: Math.abs(amountRaw),
       date,
-      dueDate: dueIdx >= 0 ? parseCsvDate(cols[dueIdx] ?? '') || date : date,
+      dueDate,
       category,
       method: 'CSV',
       description,
-      status: type === 'entrada' ? 'recebido' : 'pago',
+      ...(type === 'saida' && expenseKind ? { expenseKind } : {}),
+      ...(status ? { status } : {}),
     };
     return [{ tx, duplicate: importedTxnDuplicate(tx), rawDescription: description }];
   });
@@ -1269,6 +1821,33 @@ function pickAssistantBank(normalized: string): string {
   return state.banks.length === 1 ? state.banks[0].id : '';
 }
 
+function pickAssistantCreditCard(normalized: string): string {
+  const found = state.creditCards.find((card) => {
+    const labels = [card.name, card.brand].filter(Boolean);
+    return labels.some((label) => {
+      const n = normalizeAssistantText(label);
+      if (!n) return false;
+      if (normalized.includes(n)) return true;
+      return n
+        .split(/[^a-z0-9]+/)
+        .filter((token) => token.length > 2 && !['cartao', 'credito'].includes(token))
+        .some((token) => normalized.includes(token));
+    });
+  });
+  return found?.id ?? (state.creditCards.length === 1 ? state.creditCards[0]!.id : '');
+}
+
+function parseAssistantInstallments(normalized: string): number {
+  const match = normalized.match(/\b(?:em\s*)?(\d{1,3})\s*x\b/) ?? normalized.match(/\b(\d{1,3})\s*parcelas?\b/);
+  if (!match) return 1;
+  const n = Number(match[1]);
+  return Number.isFinite(n) ? Math.min(120, Math.max(1, Math.round(n))) : 1;
+}
+
+function isAssistantCreditPurchase(normalized: string): boolean {
+  return state.creditCards.length > 0 && /\b(cartao|credito|mastercard|visa|elo|amex)\b/.test(normalized);
+}
+
 function defaultAssistantStatus(type: TxnType, date: string, normalized: string): TxnStatus {
   const today = assistantRelativeDate(0);
   const future = date > today || includesAny(normalized, ['amanha', 'agendado', 'vou pagar', 'a pagar', 'a receber']);
@@ -1300,6 +1879,24 @@ function buildAssistantDraft(source: string): AssistantDraft {
   return { tx, missing: assistantMissingFields(tx), confidence: 0.72, source };
 }
 
+function buildAssistantCreditDraft(source: string): AssistantCreditDraft {
+  const normalized = normalizeAssistantText(source);
+  const amount = parseAssistantAmount(source);
+  const date = parseAssistantDate(source, normalized);
+  const cardId = pickAssistantCreditCard(normalized);
+  const category = pickCatalogCategory('saida', normalized);
+  const purchase: CreditCardPurchase = {
+    id: uid(),
+    cardId,
+    date,
+    amount: Number.isFinite(amount) ? Math.round(amount * 100) / 100 : 0,
+    installments: parseAssistantInstallments(normalized),
+    category,
+    description: source.trim().slice(0, 500),
+  };
+  return { purchase, missing: assistantCreditMissingFields(purchase), confidence: 0.76, source };
+}
+
 function assistantMissingFields(tx: Transaction): string[] {
   const missing: string[] = [];
   if (!tx.amount || !Number.isFinite(tx.amount) || tx.amount <= 0) missing.push('valor');
@@ -1309,9 +1906,49 @@ function assistantMissingFields(tx: Transaction): string[] {
   return missing;
 }
 
+function assistantCreditMissingFields(purchase: CreditCardPurchase): string[] {
+  const missing: string[] = [];
+  if (!purchase.cardId) missing.push('cartao');
+  if (!purchase.amount || !Number.isFinite(purchase.amount) || purchase.amount <= 0) missing.push('valor');
+  if (!purchase.date) missing.push('data');
+  if (!purchase.category.trim()) missing.push('categoria');
+  return missing;
+}
+
 function renderAssistantPreview(): void {
   const box = document.getElementById('aiEntryPreview');
   if (!box) return;
+  if (assistantCreditDraft) {
+    const { purchase, missing } = assistantCreditDraft;
+    const cardOptions =
+      '<option value="">Selecione o cartao</option>' +
+      state.creditCards
+        .map((card) => `<option value="${esc(card.id)}"${card.id === purchase.cardId ? ' selected' : ''}>${esc(card.name)} - ${esc(card.brand)}</option>`)
+        .join('');
+    box.classList.remove('hidden');
+    box.innerHTML = `
+      <div class="ai-preview-head">
+        <div>
+          <h3>Rascunho de compra no cartao</h3>
+          <p>${missing.length ? `Faltou confirmar: ${esc(missing.join(', '))}.` : 'Tudo pronto para registrar no cartao.'}</p>
+        </div>
+        <span class="ai-confidence">${Math.round(assistantCreditDraft.confidence * 100)}% local</span>
+      </div>
+      <div class="ai-draft-grid">
+        <label>Cartao<select id="aiCreditCard">${cardOptions}</select></label>
+        <label>Valor<input id="aiCreditAmount" type="text" value="${purchase.amount > 0 ? esc(formatMoneyInputBR(purchase.amount)) : ''}" placeholder="150,00" /></label>
+        <label>Data<input id="aiCreditDate" type="date" value="${esc(purchase.date)}" /></label>
+        <label>Parcelas<input id="aiCreditInstallments" type="number" min="1" max="120" value="${esc(purchase.installments)}" /></label>
+        <label>Categoria<input id="aiCreditCategory" type="text" value="${esc(purchase.category)}" /></label>
+      </div>
+      <label class="ai-description">Descricao<textarea id="aiCreditDescription" rows="2">${esc(purchase.description)}</textarea></label>
+      <div class="ai-entry-actions">
+        <button type="button" class="btn primary" id="btnAiCreditSave">Registrar no cartao</button>
+        <button type="button" class="btn ghost" id="btnAiDiscard">Descartar</button>
+      </div>
+    `;
+    return;
+  }
   if (!assistantDraft) {
     box.classList.add('hidden');
     box.innerHTML = '';
@@ -1374,11 +2011,38 @@ function syncAssistantDraftFromPreview(): boolean {
   return true;
 }
 
-function saveAssistantDraft(): void {
+function syncAssistantCreditDraftFromPreview(): boolean {
+  if (!assistantCreditDraft) return false;
+  const rawInstallments = Number(getEl<HTMLInputElement>('aiCreditInstallments').value);
+  assistantCreditDraft.purchase = {
+    ...assistantCreditDraft.purchase,
+    cardId: getEl<HTMLSelectElement>('aiCreditCard').value,
+    amount: moneyAmountFromUserInput(getEl<HTMLInputElement>('aiCreditAmount').value),
+    date: getEl<HTMLInputElement>('aiCreditDate').value,
+    installments: Number.isFinite(rawInstallments) ? Math.min(120, Math.max(1, Math.round(rawInstallments))) : 1,
+    category: getEl<HTMLInputElement>('aiCreditCategory').value.trim(),
+    description: getEl<HTMLTextAreaElement>('aiCreditDescription').value.trim().slice(0, 500),
+  };
+  assistantCreditDraft.missing = assistantCreditMissingFields(assistantCreditDraft.purchase);
+  return true;
+}
+
+async function saveAssistantDraft(): Promise<void> {
   if (!syncAssistantDraftFromPreview() || !assistantDraft) return;
   if (assistantDraft.missing.length) {
     renderAssistantPreview();
     toast(`Complete antes de salvar: ${assistantDraft.missing.join(', ')}.`, 'error');
+    return;
+  }
+  if (
+    assistantDraft.tx.type === 'saida' &&
+    !(await confirmBehaviorGuard(
+      `${assistantDraft.tx.category} ${assistantDraft.tx.description} ${assistantDraft.tx.method}`,
+      assistantDraft.tx.amount,
+      assistantDraft.tx.date
+    ))
+  ) {
+    toast('Lancamento pausado. Voce pode revisar antes de salvar.', 'error');
     return;
   }
   state.transactions.push(assistantDraft.tx);
@@ -1388,6 +2052,32 @@ function saveAssistantDraft(): void {
   renderAll();
   switchView('transactions');
   toast('Lancamento criado pelo assistente local.', 'success');
+}
+
+async function saveAssistantCreditDraft(): Promise<void> {
+  if (!syncAssistantCreditDraftFromPreview() || !assistantCreditDraft) return;
+  if (assistantCreditDraft.missing.length) {
+    renderAssistantPreview();
+    toast(`Complete antes de salvar: ${assistantCreditDraft.missing.join(', ')}.`, 'error');
+    return;
+  }
+  if (
+    !(await confirmBehaviorGuard(
+      `${assistantCreditDraft.purchase.category} ${assistantCreditDraft.purchase.description} cartao`,
+      assistantCreditDraft.purchase.amount,
+      assistantCreditDraft.purchase.date
+    ))
+  ) {
+    toast('Compra pausada. Voce pode revisar antes de registrar.', 'error');
+    return;
+  }
+  state.creditCardPurchases.push(assistantCreditDraft.purchase);
+  assistantCreditDraft = null;
+  getEl<HTMLTextAreaElement>('aiEntryText').value = '';
+  renderAssistantPreview();
+  renderAll();
+  switchView('creditCards');
+  toast('Compra registrada no cartao pelo assistente local.', 'success');
 }
 
 function renderTransactionsTable(): void {
@@ -1766,6 +2456,490 @@ function renderBudgetList(): void {
     .join('');
 }
 
+type CreditInvoiceLine = {
+  card: CreditCard;
+  purchase: CreditCardPurchase;
+  installmentNo: number;
+  amount: number;
+  closingDate: string;
+  dueDate: string;
+};
+
+function daysInMonth(year: number, monthIndex: number): number {
+  return new Date(year, monthIndex + 1, 0, 12).getDate();
+}
+
+function isoInMonth(year: number, monthIndex: number, day: number): string {
+  const d = Math.min(Math.max(1, day), daysInMonth(year, monthIndex));
+  return new Date(year, monthIndex, d, 12).toISOString().slice(0, 10);
+}
+
+function creditInvoiceDates(card: CreditCard, purchaseDate: string, installmentIndex: number): { closingDate: string; dueDate: string } {
+  const base = new Date(`${purchaseDate}T12:00:00`);
+  const purchaseDay = base.getDate();
+  const closingOffset = purchaseDay > card.closingDay ? 1 : 0;
+  const closingMonth = base.getMonth() + closingOffset + installmentIndex;
+  const closingYear = base.getFullYear() + Math.floor(closingMonth / 12);
+  const closingMonthIndex = ((closingMonth % 12) + 12) % 12;
+  const dueOffset = card.dueDay <= card.closingDay ? 1 : 0;
+  const dueMonth = closingMonth + dueOffset;
+  const dueYear = base.getFullYear() + Math.floor(dueMonth / 12);
+  const dueMonthIndex = ((dueMonth % 12) + 12) % 12;
+  return {
+    closingDate: isoInMonth(closingYear, closingMonthIndex, card.closingDay),
+    dueDate: isoInMonth(dueYear, dueMonthIndex, card.dueDay),
+  };
+}
+
+function creditInstallmentAmount(purchase: CreditCardPurchase, installmentIndex: number): number {
+  const totalCents = Math.round(purchase.amount * 100);
+  const base = Math.floor(totalCents / purchase.installments);
+  const remainder = totalCents % purchase.installments;
+  return (base + (installmentIndex < remainder ? 1 : 0)) / 100;
+}
+
+function creditInvoiceLines(): CreditInvoiceLine[] {
+  const lines: CreditInvoiceLine[] = [];
+  for (const purchase of state.creditCardPurchases) {
+    const card = state.creditCards.find((c) => c.id === purchase.cardId);
+    if (!card) continue;
+    for (let i = 0; i < purchase.installments; i += 1) {
+      const dates = creditInvoiceDates(card, purchase.date, i);
+      lines.push({
+        card,
+        purchase,
+        installmentNo: i + 1,
+        amount: creditInstallmentAmount(purchase, i),
+        ...dates,
+      });
+    }
+  }
+  return lines.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.card.name.localeCompare(b.card.name));
+}
+
+function currentCreditInvoiceDue(lines = creditInvoiceLines()): string | null {
+  const today = new Date().toISOString().slice(0, 10);
+  const future = lines.find((line) => line.dueDate >= today && creditInvoiceOpenAmount(line.card.id, line.dueDate, lines) > 0);
+  return future?.dueDate ?? lines.at(-1)?.dueDate ?? null;
+}
+
+function creditInvoiceTotal(cardId: string, dueDate: string, lines = creditInvoiceLines()): number {
+  return lines
+    .filter((line) => line.card.id === cardId && line.dueDate === dueDate)
+    .reduce((sum, line) => sum + line.amount, 0);
+}
+
+function creditInvoicePaid(cardId: string, dueDate: string): number {
+  return state.creditCardPayments
+    .filter((payment) => payment.cardId === cardId && payment.invoiceDueDate === dueDate)
+    .reduce((sum, payment) => sum + payment.amount, 0);
+}
+
+function creditInvoiceOpenAmount(cardId: string, dueDate: string, lines = creditInvoiceLines()): number {
+  return Math.max(0, creditInvoiceTotal(cardId, dueDate, lines) - creditInvoicePaid(cardId, dueDate));
+}
+
+function creditInvoiceOptions(lines = creditInvoiceLines()): { cardId: string; dueDate: string; label: string; open: number }[] {
+  const seen = new Set<string>();
+  return lines.flatMap((line) => {
+    const key = `${line.card.id}|${line.dueDate}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    const open = creditInvoiceOpenAmount(line.card.id, line.dueDate, lines);
+    if (open <= 0) return [];
+    return [{ cardId: line.card.id, dueDate: line.dueDate, label: `${line.card.name} - ${dateBR(line.dueDate)} - ${brl(open)}`, open }];
+  });
+}
+
+function creditCardUsed(cardId: string): number {
+  const lines = creditInvoiceLines();
+  const dueDates = [...new Set(lines.filter((line) => line.card.id === cardId).map((line) => line.dueDate))];
+  return dueDates.reduce((sum, dueDate) => sum + creditInvoiceOpenAmount(cardId, dueDate, lines), 0);
+}
+
+function populateCreditCardControls(): void {
+  const bank = document.getElementById('creditCardBank') as HTMLSelectElement | null;
+  const bankOptions =
+    '<option value="">Sem conta vinculada</option>' +
+    state.banks.map((b) => `<option value="${esc(b.id)}">${esc(bankOptionLabel(b))}</option>`).join('');
+  if (bank) {
+    bank.innerHTML = bankOptions;
+  }
+  const card = document.getElementById('creditPurchaseCard') as HTMLSelectElement | null;
+  const cardOptions = state.creditCards.length
+    ? '<option value="">Selecione o cartao</option>' +
+      state.creditCards.map((c) => `<option value="${esc(c.id)}">${esc(c.name)} - ${esc(c.brand)}</option>`).join('')
+    : '<option value="">Cadastre um cartao primeiro</option>';
+  if (card) {
+    card.innerHTML = cardOptions;
+  }
+  const simCard = document.getElementById('creditSimCard') as HTMLSelectElement | null;
+  if (simCard) {
+    const current = simCard.value;
+    simCard.innerHTML = cardOptions;
+    if (current && state.creditCards.some((c) => c.id === current)) simCard.value = current;
+  }
+  const paymentCard = document.getElementById('creditPaymentCard') as HTMLSelectElement | null;
+  if (paymentCard) {
+    const current = paymentCard.value;
+    paymentCard.innerHTML = cardOptions;
+    if (current && state.creditCards.some((c) => c.id === current)) paymentCard.value = current;
+  }
+  const paymentBank = document.getElementById('creditPaymentBank') as HTMLSelectElement | null;
+  if (paymentBank) {
+    const current = paymentBank.value;
+    paymentBank.innerHTML =
+      '<option value="">Selecione a conta</option>' +
+      state.banks.map((b) => `<option value="${esc(b.id)}">${esc(bankOptionLabel(b))}</option>`).join('');
+    if (current && state.banks.some((b) => b.id === current)) paymentBank.value = current;
+  }
+  const date = document.getElementById('creditPurchaseDate') as HTMLInputElement | null;
+  if (date && !date.value) date.value = new Date().toISOString().slice(0, 10);
+  const simDate = document.getElementById('creditSimDate') as HTMLInputElement | null;
+  if (simDate && !simDate.value) simDate.value = new Date().toISOString().slice(0, 10);
+  const paymentDate = document.getElementById('creditPaymentDate') as HTMLInputElement | null;
+  if (paymentDate && !paymentDate.value) paymentDate.value = new Date().toISOString().slice(0, 10);
+  const categoryList = document.getElementById('creditCategoryList') as HTMLDataListElement | null;
+  if (categoryList) {
+    categoryList.innerHTML = state.catalog.expenseCategories.map((c) => `<option value="${esc(c)}"></option>`).join('');
+  }
+  refreshCreditPaymentInvoices();
+}
+
+function refreshCreditPaymentInvoices(): void {
+  const invoice = document.getElementById('creditPaymentInvoice') as HTMLSelectElement | null;
+  if (!invoice) return;
+  const cardId = (document.getElementById('creditPaymentCard') as HTMLSelectElement | null)?.value ?? '';
+  const options = creditInvoiceOptions().filter((opt) => !cardId || opt.cardId === cardId);
+  const current = invoice.value;
+  invoice.innerHTML = options.length
+    ? '<option value="">Selecione a fatura</option>' +
+      options.map((opt) => `<option value="${esc(`${opt.cardId}|${opt.dueDate}`)}">${esc(opt.label)}</option>`).join('')
+    : '<option value="">Nenhuma fatura em aberto</option>';
+  if (current && options.some((opt) => `${opt.cardId}|${opt.dueDate}` === current)) invoice.value = current;
+  syncCreditPaymentAmount();
+}
+
+function syncCreditPaymentAmount(): void {
+  const invoice = document.getElementById('creditPaymentInvoice') as HTMLSelectElement | null;
+  const amount = document.getElementById('creditPaymentAmount') as HTMLInputElement | null;
+  if (!invoice || !amount || !invoice.value) return;
+  const [cardId, dueDate] = invoice.value.split('|');
+  if (!cardId || !dueDate) return;
+  amount.value = formatMoneyInputBR(creditInvoiceOpenAmount(cardId, dueDate));
+}
+
+function renderCreditSimulator(): void {
+  const box = document.getElementById('creditSimulationResult');
+  if (!box) return;
+  const cardId = (document.getElementById('creditSimCard') as HTMLSelectElement | null)?.value ?? '';
+  const date = (document.getElementById('creditSimDate') as HTMLInputElement | null)?.value ?? '';
+  const amountRaw = (document.getElementById('creditSimAmount') as HTMLInputElement | null)?.value ?? '';
+  const installmentsRaw = Number((document.getElementById('creditSimInstallments') as HTMLInputElement | null)?.value ?? '1');
+  const amount = moneyAmountFromUserInput(amountRaw);
+  const installments = Number.isFinite(installmentsRaw) ? Math.min(120, Math.max(1, Math.round(installmentsRaw))) : 1;
+  const card = state.creditCards.find((c) => c.id === cardId);
+  if (!state.creditCards.length) {
+    box.innerHTML = '<div class="empty">Cadastre um cartao para simular compras parceladas.</div>';
+    return;
+  }
+  if (!card || !date || amount <= 0) {
+    box.innerHTML = '<p class="muted small">Preencha cartao, data, valor e parcelas para ver o impacto nas faturas.</p>';
+    return;
+  }
+  const fake: CreditCardPurchase = {
+    id: 'sim',
+    cardId: card.id,
+    date,
+    amount,
+    installments,
+    category: '',
+    description: 'Simulacao',
+  };
+  const lines = Array.from({ length: installments }, (_, i) => {
+    const dates = creditInvoiceDates(card, date, i);
+    const value = creditInstallmentAmount(fake, i);
+    const openBefore = creditInvoiceOpenAmount(card.id, dates.dueDate);
+    return { installmentNo: i + 1, ...dates, value, openBefore, openAfter: openBefore + value };
+  });
+  const cardUsed = creditCardUsed(card.id);
+  const projectedUsed = cardUsed + amount;
+  const projectedPct = card.limit > 0 ? (projectedUsed / card.limit) * 100 : 0;
+  const pressureClass = projectedPct >= 90 ? 'negative' : projectedPct >= 70 ? 'kpi-invest-value' : 'positive';
+  box.innerHTML =
+    `<div class="credit-sim-summary"><strong class="${pressureClass}">${brl(projectedUsed)} comprometidos</strong><span class="muted small">Depois desta compra, uso estimado do limite: ${Math.round(projectedPct)}%.</span></div>` +
+    '<div class="table-wrap"><table><thead><tr><th>Fatura</th><th>Parcela</th><th>Antes</th><th>Depois</th></tr></thead><tbody>' +
+    lines
+      .slice(0, 12)
+      .map(
+        (line) =>
+          `<tr><td>${dateBR(line.dueDate)}</td><td>${line.installmentNo}/${installments} - ${brl(line.value)}</td><td>${brl(line.openBefore)}</td><td class="negative">${brl(line.openAfter)}</td></tr>`
+      )
+      .join('') +
+    '</tbody></table></div>' +
+    (installments > 12 ? `<p class="muted small">Mostrando as 12 primeiras parcelas de ${installments}.</p>` : '');
+}
+
+function averageMonthlyIncome(lastMonths = 3): number {
+  const now = new Date();
+  let total = 0;
+  for (let i = 0; i < lastMonths; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1, 12);
+    total += monthIncomeExpense(d.getFullYear(), d.getMonth()).income;
+  }
+  return total / lastMonths;
+}
+
+function renderCreditRadar(lines = creditInvoiceLines()): void {
+  const box = document.getElementById('creditRadar');
+  if (!box) return;
+  if (!state.creditCards.length) {
+    box.innerHTML = '<div class="empty">Cadastre cartoes para receber alertas de fatura e limite.</div>';
+    return;
+  }
+  const alerts: { kind: 'ok' | 'warn' | 'info'; title: string; detail: string }[] = [];
+  const totalLimit = state.creditCards.reduce((sum, card) => sum + card.limit, 0);
+  const used = state.creditCards.reduce((sum, card) => sum + creditCardUsed(card.id), 0);
+  const usedPct = totalLimit > 0 ? (used / totalLimit) * 100 : 0;
+  if (usedPct >= 90) {
+    alerts.push({ kind: 'warn', title: 'Limite quase no teto', detail: `${Math.round(usedPct)}% do limite total esta comprometido.` });
+  } else if (usedPct >= 70) {
+    alerts.push({ kind: 'info', title: 'Uso elevado do limite', detail: `${Math.round(usedPct)}% do limite total ja esta comprometido.` });
+  } else {
+    alerts.push({ kind: 'ok', title: 'Limite saudavel', detail: `${Math.round(usedPct)}% do limite total esta comprometido.` });
+  }
+
+  const currentDue = currentCreditInvoiceDue(lines);
+  if (currentDue) {
+    const open = state.creditCards.reduce((sum, card) => sum + creditInvoiceOpenAmount(card.id, currentDue, lines), 0);
+    const today = new Date();
+    const due = new Date(`${currentDue}T12:00:00`);
+    const days = Math.ceil((due.getTime() - today.getTime()) / 86400000);
+    alerts.push({
+      kind: days <= 3 ? 'warn' : 'info',
+      title: days < 0 ? 'Fatura vencida' : days <= 3 ? 'Fatura perto do vencimento' : 'Proxima fatura',
+      detail: `${brl(open)} em aberto para ${dateBR(currentDue)}${days >= 0 ? ` (${days} dia(s))` : ''}.`,
+    });
+  }
+
+  const avgIncome = averageMonthlyIncome();
+  if (avgIncome > 0 && currentDue) {
+    const open = state.creditCards.reduce((sum, card) => sum + creditInvoiceOpenAmount(card.id, currentDue, lines), 0);
+    const pressure = (open / avgIncome) * 100;
+    alerts.push({
+      kind: pressure >= 35 ? 'warn' : pressure >= 20 ? 'info' : 'ok',
+      title: 'Pressao sobre renda',
+      detail: `A proxima fatura representa ${Math.round(pressure)}% da media de receitas dos ultimos 3 meses.`,
+    });
+  } else {
+    alerts.push({
+      kind: 'info',
+      title: 'Renda sem base',
+      detail: 'Registre receitas no Fluxo de Caixa para medir a pressao da fatura sobre a renda.',
+    });
+  }
+
+  box.innerHTML = alerts
+    .map(
+      (alert) =>
+        `<div class="credit-radar-item credit-radar-item--${alert.kind}"><strong>${esc(alert.title)}</strong><p>${esc(alert.detail)}</p></div>`
+    )
+    .join('');
+}
+
+function renderCreditCards(): void {
+  populateCreditCardControls();
+  renderCreditSimulator();
+  const lines = creditInvoiceLines();
+  renderCreditRadar(lines);
+  const totalLimit = state.creditCards.reduce((sum, card) => sum + card.limit, 0);
+  const used = state.creditCards.reduce((sum, card) => sum + creditCardUsed(card.id), 0);
+  const currentDue = currentCreditInvoiceDue(lines);
+  const currentTotal = currentDue
+    ? state.creditCards.reduce((sum, card) => sum + creditInvoiceOpenAmount(card.id, currentDue, lines), 0)
+    : 0;
+  getEl('creditLimitTotal').textContent = brl(totalLimit);
+  getEl('creditLimitUsed').textContent = brl(used);
+  getEl('creditLimitAvailable').textContent = brl(Math.max(0, totalLimit - used));
+  getEl('creditCurrentInvoice').textContent = brl(currentTotal);
+  getEl('creditCurrentInvoiceHint').textContent = currentDue ? `Vencimento ${dateBR(currentDue)}` : 'Sem fatura aberta';
+
+  const list = getEl('creditCardsList');
+  if (!state.creditCards.length) {
+    list.innerHTML = '<div class="empty">Cadastre seu primeiro cartao para acompanhar limite e faturas.</div>';
+  } else {
+    list.innerHTML = state.creditCards
+      .map((card) => {
+        const cardUsed = creditCardUsed(card.id);
+        const pct = card.limit > 0 ? Math.min(100, (cardUsed / card.limit) * 100) : 0;
+        return `<div class="credit-card-item"><div class="credit-card-main"><strong>${esc(card.name)}</strong><span class="muted small">${esc(card.brand)} - fecha dia ${card.closingDay}, vence dia ${card.dueDay}${card.bankId ? ` - ${esc(bankLabelById(card.bankId))}` : ''}</span><div class="bar credit-limit-bar"><span style="width:${pct}%"></span></div></div><div class="credit-card-aside"><strong>${brl(card.limit - cardUsed)}</strong><span class="muted small">disponivel de ${brl(card.limit)} - aberto ${brl(cardUsed)}</span><div class="row-actions credit-card-actions"><button type="button" class="btn danger" data-delete-credit-card="${esc(card.id)}">Excluir</button></div></div></div>`;
+      })
+      .join('');
+  }
+
+  const table = getEl('creditInvoicesTable');
+  if (!lines.length) {
+    table.innerHTML = '<div class="empty">Nenhuma compra registrada no cartao.</div>';
+    return;
+  }
+  table.innerHTML =
+    '<table><thead><tr><th>Vencimento</th><th>Cartao</th><th>Compra</th><th>Parcela</th><th>Categoria</th><th>Valor</th><th>Status</th><th>Acoes</th></tr></thead><tbody>' +
+    lines
+      .map(
+        (line) => {
+          const invoiceOpen = creditInvoiceOpenAmount(line.card.id, line.dueDate, lines);
+          const status = invoiceOpen <= 0 ? '<span class="positive">Fatura paga</span>' : `<span class="negative">Aberto ${brl(invoiceOpen)}</span>`;
+          return `<tr><td>${dateBR(line.dueDate)}</td><td>${esc(line.card.name)}</td><td>${esc(line.purchase.description || '-')}<br><span class="muted small">Compra ${dateBR(line.purchase.date)} - fecha ${dateBR(line.closingDate)}</span></td><td>${line.installmentNo}/${line.purchase.installments}</td><td>${esc(line.purchase.category || '-')}</td><td class="negative">${brl(line.amount)}</td><td>${status}</td><td><button type="button" class="btn danger" data-delete-credit-purchase="${esc(line.purchase.id)}">Excluir</button></td></tr>`;
+        }
+      )
+      .join('') +
+    '</tbody></table>';
+}
+
+function createCreditCard(): void {
+  const name = getEl<HTMLInputElement>('creditCardName').value.trim();
+  const brand = getEl<HTMLSelectElement>('creditCardBrand').value;
+  const limit = moneyAmountFromUserInput(getEl<HTMLInputElement>('creditCardLimit').value);
+  const bankId = getEl<HTMLSelectElement>('creditCardBank').value;
+  const closingDay = normalizeDay(getEl<HTMLInputElement>('creditCardClosingDay').value, 25);
+  const dueDay = normalizeDay(getEl<HTMLInputElement>('creditCardDueDay').value, 10);
+  if (!name || limit <= 0) {
+    toast('Informe nome do cartao e limite valido.', 'error');
+    return;
+  }
+  state.creditCards.push({
+    id: uid(),
+    name,
+    ...(bankId ? { bankId } : {}),
+    brand,
+    limit,
+    closingDay,
+    dueDay,
+  });
+  getEl<HTMLInputElement>('creditCardName').value = '';
+  getEl<HTMLInputElement>('creditCardLimit').value = '';
+  getEl<HTMLInputElement>('creditCardClosingDay').value = '25';
+  getEl<HTMLInputElement>('creditCardDueDay').value = '10';
+  renderAll();
+  toast('Cartao cadastrado.', 'success');
+}
+
+async function createCreditPurchase(): Promise<void> {
+  const cardId = getEl<HTMLSelectElement>('creditPurchaseCard').value;
+  const date = getEl<HTMLInputElement>('creditPurchaseDate').value;
+  const amount = moneyAmountFromUserInput(getEl<HTMLInputElement>('creditPurchaseAmount').value);
+  const rawInstallments = Number(getEl<HTMLInputElement>('creditPurchaseInstallments').value);
+  const installments = Number.isFinite(rawInstallments) ? Math.min(120, Math.max(1, Math.round(rawInstallments))) : 1;
+  const category = getEl<HTMLInputElement>('creditPurchaseCategory').value.trim();
+  const description = getEl<HTMLInputElement>('creditPurchaseDescription').value.trim().slice(0, 500);
+  if (!state.creditCards.length) {
+    toast('Cadastre um cartao antes de registrar compras.', 'error');
+    return;
+  }
+  if (!cardId || !date || amount <= 0) {
+    toast('Informe cartao, data e valor valido.', 'error');
+    return;
+  }
+  if (!(await confirmBehaviorGuard(`${category} ${description} cartao`, amount, date))) {
+    toast('Compra pausada. Voce pode revisar antes de registrar.', 'error');
+    return;
+  }
+  state.creditCardPurchases.push({
+    id: uid(),
+    cardId,
+    date,
+    description,
+    category,
+    amount,
+    installments,
+  });
+  getEl<HTMLInputElement>('creditPurchaseAmount').value = '';
+  getEl<HTMLInputElement>('creditPurchaseInstallments').value = '1';
+  getEl<HTMLInputElement>('creditPurchaseCategory').value = '';
+  getEl<HTMLInputElement>('creditPurchaseDescription').value = '';
+  renderAll();
+  toast('Compra registrada no cartao.', 'success');
+}
+
+function payCreditInvoice(): void {
+  const invoiceRaw = getEl<HTMLSelectElement>('creditPaymentInvoice').value;
+  const [cardId, invoiceDueDate] = invoiceRaw.split('|');
+  const card = state.creditCards.find((c) => c.id === cardId);
+  const bankId = getEl<HTMLSelectElement>('creditPaymentBank').value;
+  const date = getEl<HTMLInputElement>('creditPaymentDate').value;
+  const amount = moneyAmountFromUserInput(getEl<HTMLInputElement>('creditPaymentAmount').value);
+  if (!card || !invoiceDueDate) {
+    toast('Selecione a fatura para pagamento.', 'error');
+    return;
+  }
+  if (!state.banks.length || !bankId) {
+    toast('Selecione a conta de pagamento da fatura.', 'error');
+    return;
+  }
+  if (!date || amount <= 0) {
+    toast('Informe data e valor pago validos.', 'error');
+    return;
+  }
+  const open = creditInvoiceOpenAmount(cardId, invoiceDueDate);
+  if (open <= 0) {
+    toast('Esta fatura ja esta paga.', 'error');
+    return;
+  }
+  if (amount > open + 0.009) {
+    toast(`O valor pago nao pode passar do aberto (${brl(open)}).`, 'error');
+    return;
+  }
+  const txId = uid();
+  const tx: Transaction = {
+    id: txId,
+    bankId,
+    type: 'saida',
+    amount,
+    date,
+    dueDate: date,
+    category: 'Cartao de Credito',
+    method: 'Fatura',
+    description: `Pagamento fatura ${card.name} venc. ${dateBR(invoiceDueDate)}`,
+    expenseKind: 'variavel',
+    status: 'pago',
+  };
+  state.transactions.push(tx);
+  state.creditCardPayments.push({
+    id: uid(),
+    cardId,
+    invoiceDueDate,
+    bankId,
+    date,
+    amount,
+    transactionId: txId,
+  });
+  getEl<HTMLInputElement>('creditPaymentAmount').value = '';
+  renderAll();
+  toast('Fatura paga e lancamento criado no Fluxo de Caixa.', 'success');
+}
+
+function deleteCreditCard(id: string): void {
+  const purchases = state.creditCardPurchases.filter((p) => p.cardId === id).length;
+  const payments = state.creditCardPayments.filter((p) => p.cardId === id).length;
+  const msg =
+    purchases || payments
+      ? 'Este cartao possui compras ou pagamentos. Excluir cartao e registros vinculados?'
+      : 'Excluir este cartao?';
+  if (!confirm(msg)) return;
+  state.creditCards = state.creditCards.filter((card) => card.id !== id);
+  state.creditCardPurchases = state.creditCardPurchases.filter((p) => p.cardId !== id);
+  state.creditCardPayments = state.creditCardPayments.filter((p) => p.cardId !== id);
+  renderAll();
+  toast('Cartao removido.', 'success');
+}
+
+function deleteCreditPurchase(id: string): void {
+  if (!confirm('Excluir esta compra do cartao?')) return;
+  state.creditCardPurchases = state.creditCardPurchases.filter((p) => p.id !== id);
+  renderAll();
+  toast('Compra removida.', 'success');
+}
+
 function removeCatalogItem(kind: 'income' | 'expense' | 'inv', index: number): void {
   const arr =
     kind === 'income'
@@ -2121,10 +3295,14 @@ function renderAll(): void {
   renderBankBars();
   renderTransactionsTable();
   renderBanksList();
+  renderCreditCards();
   renderReports();
   renderCatalogList();
   renderCadastrosLists();
   renderInvestmentsTable();
+  renderBehaviorView();
+  renderSidebarTip();
+  renderSidebarEducationTip();
   refreshInvTypeDatalist();
   syncAuthSettingsVisibility();
 }
@@ -2132,6 +3310,8 @@ function renderAll(): void {
 const VIEW_META: Record<ViewId, [string, string]> = {
   dashboard: ['Dashboard', 'Cockpit financeiro com indicadores, alertas e posicao consolidada.'],
   transactions: ['Fluxo de Caixa', 'Operacao diaria: entradas, saidas, vencimentos, importacao e recorrencias.'],
+  creditCards: ['Cartoes', 'Limite, faturas, compras parceladas e compromissos futuros.'],
+  behavior: ['Comportamento', 'Habitos financeiros, sinais de impulso e conselhos para proteger seu caixa.'],
   budgets: ['Orcamentos', 'Limites mensais por categoria, risco de estouro e alertas no dashboard.'],
   banks: ['Contas', 'Instituicoes, tipos de conta e posicao consolidada por banco.'],
   cadastros: ['Parametros', 'Categorias, tipos de investimento e listas de apoio para padronizar registros.'],
@@ -2282,7 +3462,7 @@ function saveUnifiedInvestment(): void {
   toast('Investimento registrado.', 'success');
 }
 
-function saveTransaction(): void {
+async function saveTransaction(): Promise<void> {
   if (getTxnModalMode() === 'investimento') {
     if (!state.banks.length) {
       toast('Cadastre pelo menos um banco antes de registrar investimentos.', 'error');
@@ -2330,6 +3510,10 @@ function saveTransaction(): void {
     toast('Informe a data de vencimento.', 'error');
     return;
   }
+  if (type === 'saida' && !id && !(await confirmBehaviorGuard(`${category} ${description} ${method}`, amount, date))) {
+    toast('Lancamento pausado. Voce pode revisar antes de salvar.', 'error');
+    return;
+  }
   const payload: Transaction = {
     id: id || uid(),
     bankId,
@@ -2358,6 +3542,7 @@ function saveTransaction(): void {
 function deleteTransaction(id: string): void {
   if (!confirm('Deseja excluir este lançamento?')) return;
   state.transactions = state.transactions.filter((t) => t.id !== id);
+  state.creditCardPayments = state.creditCardPayments.filter((p) => p.transactionId !== id);
   renderAll();
   toast('Lançamento removido.', 'success');
 }
@@ -2438,6 +3623,12 @@ function deleteBank(id: string): void {
   if (!confirm(msg)) return;
   state.banks = state.banks.filter((b) => b.id !== id);
   state.transactions = state.transactions.filter((t) => t.bankId !== id);
+  state.creditCardPayments = state.creditCardPayments.filter((p) => p.bankId !== id);
+  state.creditCards = state.creditCards.map((card) => {
+    if (card.bankId !== id) return card;
+    const { bankId: _bankId, ...rest } = card;
+    return rest;
+  });
   renderAll();
   toast('Banco removido.', 'success');
 }
@@ -2762,8 +3953,19 @@ export async function initApp(): Promise<void> {
 
   getEl<HTMLButtonElement>('btnAddTxnInline').addEventListener('click', () => openTxnModal(null));
   getEl<HTMLButtonElement>('btnCreateBank').addEventListener('click', createBank);
+  getEl<HTMLButtonElement>('btnCreateCreditCard').addEventListener('click', createCreditCard);
+  getEl<HTMLButtonElement>('btnCreateCreditPurchase').addEventListener('click', () => void createCreditPurchase());
+  getEl<HTMLButtonElement>('btnPayCreditInvoice').addEventListener('click', payCreditInvoice);
+  getEl<HTMLButtonElement>('behaviorGuardCancel').addEventListener('click', () => closeBehaviorGuardModal(false));
+  getEl<HTMLButtonElement>('behaviorGuardConfirm').addEventListener('click', () => closeBehaviorGuardModal(true));
+  getEl<HTMLSelectElement>('creditPaymentCard').addEventListener('change', refreshCreditPaymentInvoices);
+  getEl<HTMLSelectElement>('creditPaymentInvoice').addEventListener('change', syncCreditPaymentAmount);
+  ['creditSimCard', 'creditSimDate', 'creditSimAmount', 'creditSimInstallments'].forEach((id) => {
+    getEl<HTMLInputElement | HTMLSelectElement>(id).addEventListener('input', renderCreditSimulator);
+    getEl<HTMLInputElement | HTMLSelectElement>(id).addEventListener('change', renderCreditSimulator);
+  });
   getEl<HTMLButtonElement>('closeTxnModal').addEventListener('click', closeTxnModal);
-  getEl<HTMLButtonElement>('saveTxn').addEventListener('click', saveTransaction);
+  getEl<HTMLButtonElement>('saveTxn').addEventListener('click', () => void saveTransaction());
   getEl<HTMLButtonElement>('closeBankModal').addEventListener('click', closeBankModal);
   getEl<HTMLButtonElement>('saveBankEdit').addEventListener('click', saveBankEdit);
   getEl<HTMLButtonElement>('btnExportJson').addEventListener('click', exportJson);
@@ -2811,11 +4013,19 @@ export async function initApp(): Promise<void> {
       toast('Descreva o que aconteceu para o assistente interpretar.', 'error');
       return;
     }
-    assistantDraft = buildAssistantDraft(source);
+    const normalized = normalizeAssistantText(source);
+    if (isAssistantCreditPurchase(normalized)) {
+      assistantCreditDraft = buildAssistantCreditDraft(source);
+      assistantDraft = null;
+    } else {
+      assistantDraft = buildAssistantDraft(source);
+      assistantCreditDraft = null;
+    }
     renderAssistantPreview();
   });
   getEl<HTMLButtonElement>('btnAiClear').addEventListener('click', () => {
     assistantDraft = null;
+    assistantCreditDraft = null;
     getEl<HTMLTextAreaElement>('aiEntryText').value = '';
     renderAssistantPreview();
   });
@@ -2827,9 +4037,11 @@ export async function initApp(): Promise<void> {
   });
   getEl('aiEntryPreview').addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
-    if (target.closest('#btnAiSave')) saveAssistantDraft();
+    if (target.closest('#btnAiSave')) void saveAssistantDraft();
+    if (target.closest('#btnAiCreditSave')) void saveAssistantCreditDraft();
     if (target.closest('#btnAiDiscard')) {
       assistantDraft = null;
+      assistantCreditDraft = null;
       renderAssistantPreview();
     }
   });
@@ -2883,6 +4095,28 @@ export async function initApp(): Promise<void> {
       persistBudgetFromInput(t);
       t.blur();
     }
+  });
+  getEl('behaviorHabitList').addEventListener('change', (e) => {
+    const t = e.target as HTMLElement;
+    if (t instanceof HTMLInputElement && t.matches('input[data-behavior-limit]')) persistBehaviorLimitFromInput(t);
+  });
+  getEl('behaviorHabitList').addEventListener('keydown', (e) => {
+    const t = e.target as HTMLElement;
+    if (e.key === 'Enter' && t instanceof HTMLInputElement && t.matches('input[data-behavior-limit]')) {
+      e.preventDefault();
+      persistBehaviorLimitFromInput(t);
+      t.blur();
+    }
+  });
+  getEl('creditCardsList').addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('[data-delete-credit-card]');
+    const id = btn?.getAttribute('data-delete-credit-card');
+    if (id) deleteCreditCard(id);
+  });
+  getEl('creditInvoicesTable').addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('[data-delete-credit-purchase]');
+    const id = btn?.getAttribute('data-delete-credit-purchase');
+    if (id) deleteCreditPurchase(id);
   });
   getEl<HTMLInputElement>('cadInvTypeInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -2973,6 +4207,7 @@ export async function initApp(): Promise<void> {
     if (t.id === 'txnModal') closeTxnModal();
     if (t.id === 'bankModal') closeBankModal();
     if (t.id === 'invModal') closeInvModal();
+    if (t.id === 'behaviorGuardModal') closeBehaviorGuardModal(false);
   });
 
   window.addEventListener('keydown', (e) => {
@@ -2980,6 +4215,7 @@ export async function initApp(): Promise<void> {
       closeTxnModal();
       closeBankModal();
       closeInvModal();
+      if (document.getElementById('behaviorGuardModal')?.classList.contains('open')) closeBehaviorGuardModal(false);
     }
   });
 
