@@ -4,8 +4,8 @@ import './style.css';
 void initApp();
 
 /** Regista PWA (produção) para poder instalar como app no telemóvel ou PC. */
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+if (import.meta.env.PROD && location.protocol !== 'file:' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').catch(() => {});
   });
 }

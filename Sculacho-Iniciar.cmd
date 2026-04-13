@@ -21,8 +21,6 @@ if not exist "dist\index.html" (
 )
 
 echo.
-echo Sculacho em http://localhost:4173
-echo Fecha esta janela para parar o servidor.
+echo Abrindo Sculacho pela build local...
 echo.
-call npm run app
-pause
+start "" "%CD%\dist\index.html"

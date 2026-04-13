@@ -2,8 +2,8 @@
   "name": "Sculacho.com — Controle financeiro",
   "short_name": "Sculacho",
   "description": "Controle financeiro pessoal com dados no navegador.",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#eef2f8",
@@ -11,13 +11,13 @@
   "lang": "pt-BR",
   "icons": [
     {
-      "src": "/logo-app.png",
+      "src": "logo-app.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/logo-app.png",
+      "src": "logo-app.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
