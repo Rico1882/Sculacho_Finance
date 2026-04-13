@@ -3321,6 +3321,7 @@ const VIEW_META: Record<ViewId, [string, string]> = {
 };
 
 function switchView(view: ViewId): void {
+  showMobileView();
   document.querySelectorAll('[id^="view-"]').forEach((el) => el.classList.add('hidden'));
   getEl(`view-${view}`).classList.remove('hidden');
   document.querySelectorAll('.nav-btn').forEach((btn) => {
@@ -3362,6 +3363,17 @@ function scheduleViewTopReset(): void {
     setTimeout(resetViewScroll, 0);
     setTimeout(resetViewScroll, 80);
   });
+}
+
+function showMobileView(): void {
+  const appRoot = document.querySelector('.app') as HTMLElement | null;
+  appRoot?.classList.add('mobile-view-active');
+}
+
+function showMobileMenu(): void {
+  const appRoot = document.querySelector('.app') as HTMLElement | null;
+  appRoot?.classList.remove('mobile-view-active');
+  resetViewScroll();
 }
 
 function applySidebarPreference(collapsed: boolean): void {
@@ -3977,6 +3989,7 @@ export async function initApp(): Promise<void> {
       if (isViewId(v)) switchView(v);
     });
   });
+  getEl<HTMLButtonElement>('btnBackToMobileMenu').addEventListener('click', showMobileMenu);
 
   getEl<HTMLButtonElement>('btnAddTxnInline').addEventListener('click', () => openTxnModal(null));
   getEl<HTMLButtonElement>('btnCreateBank').addEventListener('click', createBank);

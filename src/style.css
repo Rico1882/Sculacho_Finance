@@ -511,6 +511,10 @@ a {
   max-width: 1600px;
 }
 
+.mobile-menu-back {
+  display: none;
+}
+
 .topbar {
   display: flex;
   gap: 16px;
@@ -3033,6 +3037,14 @@ tbody tr:hover td {
     grid-template-columns: 1fr;
   }
 
+  .app:not(.mobile-view-active) .main {
+    display: none;
+  }
+
+  .app.mobile-view-active .sidebar {
+    display: none;
+  }
+
   .app.sidebar-collapsed {
     --nav-w: 280px;
   }
@@ -3108,6 +3120,19 @@ tbody tr:hover td {
 
   .main {
     padding: 20px 18px 32px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .mobile-menu-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
   }
 
   .filters,
