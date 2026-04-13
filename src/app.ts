@@ -3335,10 +3335,33 @@ function switchView(view: ViewId): void {
   getEl('pageSubtitle').textContent = sub;
   if (view === 'budgets') renderBudgetList();
   if (view === 'reports') renderReports();
+  scheduleViewTopReset();
+}
+
+function resetViewScroll(): void {
   const main = getEl('main');
-  main.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-  window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-  main.focus({ preventScroll: true });
+  const targets: Array<Element | null | undefined> = [
+    document.scrollingElement,
+    document.documentElement,
+    document.body,
+    main,
+  ];
+  targets.forEach((target) => {
+    if (!target) return;
+    target.scrollTop = 0;
+    target.scrollLeft = 0;
+  });
+  window.scrollTo(0, 0);
+  main.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' });
+}
+
+function scheduleViewTopReset(): void {
+  resetViewScroll();
+  requestAnimationFrame(() => {
+    resetViewScroll();
+    setTimeout(resetViewScroll, 0);
+    setTimeout(resetViewScroll, 80);
+  });
 }
 
 function applySidebarPreference(collapsed: boolean): void {
