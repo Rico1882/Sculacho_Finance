@@ -55,6 +55,24 @@ const EMPTY_SAVINGS_GOALS: AppState['savingsGoals'] = {
 };
 
 const SIDEBAR_COLLAPSED_KEY = 'sculacho.sidebarCollapsed';
+const APP_THEME_KEY = 'sculacho.appTheme';
+const DEFAULT_TRANSACTION_METHOD = 'PIX';
+const DASHBOARD_PERIOD_KEY = 'sculacho.dashboardPeriod';
+const CASHFLOW_PERIOD_KEY = 'sculacho.cashflowPeriod';
+const DASHBOARD_MONTH_LABELS = [
+  'Janeiro',
+  'Fevereiro',
+  'Marco',
+  'Abril',
+  'Maio',
+  'Junho',
+  'Julho',
+  'Agosto',
+  'Setembro',
+  'Outubro',
+  'Novembro',
+  'Dezembro',
+];
 
 const defaultData: AppState = {
   banks: [],
@@ -194,6 +212,7 @@ function normalizeImportedState(o: Record<string, unknown>): AppState {
   const transactions = rawTx.map((t) => ({
     ...t,
     bankId: typeof t.bankId === 'string' ? t.bankId : '',
+    ...(typeof t.expenseCardId === 'string' && t.expenseCardId ? { expenseCardId: t.expenseCardId } : {}),
   }));
   const rawInv = Array.isArray(o.investments) ? (o.investments as Investment[]) : [];
   const investments = rawInv.map((inv) => {
@@ -245,6 +264,57 @@ function normalizeImportedState(o: Record<string, unknown>): AppState {
   };
 }
 
+function creditCardPurchaseDuplicate(purchase: Omit<CreditCardPurchase, 'id'>): boolean {
+  return state.creditCardPurchases.some(
+    (p) =>
+      p.cardId === purchase.cardId &&
+      p.date === purchase.date &&
+      Number(p.amount ?? 0) === Number(purchase.amount ?? 0) &&
+      (p.category ?? '').trim() === (purchase.category ?? '').trim() &&
+      (p.description ?? '').trim() === (purchase.description ?? '').trim() &&
+      Number(p.installments ?? 1) === Number(purchase.installments ?? 1)
+  );
+}
+
+function cardTransactionToPurchase(t: Transaction, cardId: string): Omit<CreditCardPurchase, 'id'> {
+  return {
+    cardId,
+    date: t.date,
+    description: (t.description || t.category || 'Compra no cartao').trim().slice(0, 500),
+    category: (t.category || 'Cartao de Credito').trim(),
+    amount: Math.round(Number(t.amount ?? 0) * 100) / 100,
+    installments: 1,
+  };
+}
+
+function migrateCardTransactionsOutOfCashflow(): void {
+  const keep: Transaction[] = [];
+  let migrated = 0;
+  for (const t of state.transactions) {
+    const cardId = t.expenseCardId;
+    const canMigrate =
+      t.type === 'saida' &&
+      t.expenseKind === 'cartao' &&
+      !!cardId &&
+      state.creditCards.some((card) => card.id === cardId) &&
+      !!t.date &&
+      Number(t.amount ?? 0) > 0;
+    if (!canMigrate || !cardId) {
+      keep.push(t);
+      continue;
+    }
+    const purchase = cardTransactionToPurchase(t, cardId);
+    if (!creditCardPurchaseDuplicate(purchase)) {
+      state.creditCardPurchases.push({ id: uid(), ...purchase });
+      migrated += 1;
+    }
+  }
+  if (keep.length !== state.transactions.length) {
+    state.transactions = keep;
+    if (migrated > 0) toast(`${migrated} compra(s) de cartao migrada(s) para faturas.`, 'success');
+  }
+}
+
 function getEl<T extends HTMLElement = HTMLElement>(id: string): T {
   const el = document.getElementById(id);
   if (!el) throw new Error(`Elemento #${id} não encontrado`);
@@ -261,6 +331,12 @@ type AssistantCreditDraft = { purchase: CreditCardPurchase; missing: string[]; c
 let assistantDraft: AssistantDraft | null = null;
 let assistantCreditDraft: AssistantCreditDraft | null = null;
 let behaviorGuardResolver: ((ok: boolean) => void) | null = null;
+type AppTheme = 'light' | 'blue-glass';
+const dashboardNow = new Date();
+let dashboardMonth = dashboardNow.getMonth();
+let dashboardYear = dashboardNow.getFullYear();
+let cashflowMonth = dashboardNow.getMonth();
+let cashflowYear = dashboardNow.getFullYear();
 
 async function loadStateFromDisk(): Promise<AppState> {
   const raw = localStorage.getItem(FINANCE_STORAGE_KEY);
@@ -404,7 +480,23 @@ function statusLabel(status: TxnStatus | undefined): string {
   return map[status] ?? '—';
 }
 
-function expenseKindLabel(kind: ExpenseKind | undefined): string {
+function creditCardOptionLabel(card: CreditCard): string {
+  return `${card.name} - ${card.brand}`;
+}
+
+function creditCardLabelById(id: string | undefined | null): string {
+  if (id == null || id === '') return '';
+  const card = state.creditCards.find((c) => c.id === id);
+  return card ? creditCardOptionLabel(card) : 'Cartao';
+}
+
+function expenseKindLabel(kind: ExpenseKind | undefined, cardId?: string): string {
+  if (kind === 'fixa') return 'Fixa';
+  if (kind === 'variavel') return 'Variavel';
+  if (kind === 'cartao') {
+    const cardLabel = creditCardLabelById(cardId);
+    return cardLabel ? `Cartao - ${cardLabel}` : 'Cartao';
+  }
   if (!kind) return '—';
   return kind === 'fixa' ? 'Fixa' : 'Variável';
 }
@@ -431,6 +523,122 @@ function fillTxnStatusSelect(type: TxnType): void {
   }
 }
 
+function txnStatusOptions(type: TxnType): { value: TxnStatus; label: string }[] {
+  return type === 'entrada'
+    ? [
+        { value: 'recebido', label: 'Recebido' },
+        { value: 'a_receber', label: 'A receber' },
+        { value: 'em_atraso', label: 'Em atraso' },
+      ]
+    : [
+        { value: 'pago', label: 'Pago' },
+        { value: 'a_vencer', label: 'A vencer' },
+        { value: 'em_atraso', label: 'Em atraso' },
+        { value: 'agendado', label: 'Agendado' },
+      ];
+}
+
+function txnStatusSelectHtml(t: Transaction): string {
+  const current = t.status ?? (t.type === 'entrada' ? 'a_receber' : 'a_vencer');
+  const options = txnStatusOptions(t.type)
+    .map((opt) => `<option value="${esc(opt.value)}"${opt.value === current ? ' selected' : ''}>${esc(opt.label)}</option>`)
+    .join('');
+  return `<select class="table-status-select table-status-select--${esc(current)}" data-txn-status="${esc(t.id)}" title="Alterar status">${options}</select>`;
+}
+
+function fillTxnExpenseKindSelect(selected = ''): void {
+  const sel = getEl<HTMLSelectElement>('txnExpenseKind');
+  const cardOptions = state.creditCards
+    .map((card) => `<option value="card:${esc(card.id)}">${esc(creditCardOptionLabel(card))}</option>`)
+    .join('');
+  sel.innerHTML =
+    '<option value="">â€”</option>' +
+    '<option value="fixa">Fixa</option>' +
+    '<option value="variavel">VariÃ¡vel</option>' +
+    '<option value="cartao">Cartao</option>' +
+    (cardOptions ? `<optgroup label="Cartoes cadastrados">${cardOptions}</optgroup>` : '');
+  sel.innerHTML =
+    '<option value="">&mdash;</option>' +
+    '<option value="fixa">Fixa</option>' +
+    '<option value="variavel">Vari&aacute;vel</option>' +
+    '<option value="cartao">Cart&atilde;o</option>' +
+    (cardOptions ? `<optgroup label="Cart&otilde;es cadastrados">${cardOptions}</optgroup>` : '');
+  if (selected && [...sel.options].some((opt) => opt.value === selected)) sel.value = selected;
+}
+
+type TxnPaymentSource = { kind: 'bank' | 'card' | 'none'; id: string };
+
+function parseTxnPaymentSource(raw = getEl<HTMLSelectElement>('txnBank').value): TxnPaymentSource {
+  if (raw.startsWith('card:')) {
+    const id = raw.slice(5);
+    return state.creditCards.some((card) => card.id === id) ? { kind: 'card', id } : { kind: 'none', id: '' };
+  }
+  if (raw.startsWith('bank:')) {
+    const id = raw.slice(5);
+    return state.banks.some((bank) => bank.id === id) ? { kind: 'bank', id } : { kind: 'none', id: '' };
+  }
+  return state.banks.some((bank) => bank.id === raw) ? { kind: 'bank', id: raw } : { kind: 'none', id: '' };
+}
+
+function fillTxnPaymentSourceSelect(mode: 'entrada' | 'saida' | 'investimento', selected = ''): void {
+  const sel = getEl<HTMLSelectElement>('txnBank');
+  const selectedSource = parseTxnPaymentSource(selected);
+  const head =
+    mode === 'saida'
+      ? '<option value="">-- Selecione conta ou cartao --</option>'
+      : '<option value="">-- Selecione a conta --</option>';
+  const banksForMode =
+    mode === 'investimento'
+      ? [...investmentBankAccounts(), ...operationalBankAccounts()]
+      : operationalBankAccounts();
+  const bankOptions = banksForMode.map((b) => {
+    const value = mode === 'saida' ? `bank:${b.id}` : b.id;
+    return `<option value="${esc(value)}">${esc(bankOptionLabel(b))}</option>`;
+  });
+  if (mode !== 'saida') {
+    sel.innerHTML = head + bankOptions.join('');
+    if (selectedSource.kind === 'bank') sel.value = selectedSource.id;
+    return;
+  }
+  const cardOptions = state.creditCards.map(
+    (card) => `<option value="card:${esc(card.id)}">${esc(creditCardOptionLabel(card))}</option>`
+  );
+  sel.innerHTML =
+    head +
+    (bankOptions.length ? `<optgroup label="Contas">${bankOptions.join('')}</optgroup>` : '') +
+    (cardOptions.length ? `<optgroup label="Cartoes">${cardOptions.join('')}</optgroup>` : '');
+  if (selectedSource.kind === 'bank') sel.value = `bank:${selectedSource.id}`;
+  if (selectedSource.kind === 'card') sel.value = `card:${selectedSource.id}`;
+}
+
+function updateTxnPaymentSourceUI(): void {
+  if (getTxnModalMode() !== 'saida') return;
+  const source = parseTxnPaymentSource();
+  const dueWrap = getEl('txnDueDateWrap');
+  const dueInput = getEl<HTMLInputElement>('txnDueDate');
+  const methodInput = getEl<HTMLInputElement>('txnMethod');
+  const installmentsWrap = getEl('txnInstallmentsWrap');
+  const statusWrap = getEl('txnStatusWrap');
+  const sub = getEl('txnModalSubtitle');
+  if (source.kind === 'card') {
+    dueWrap.classList.add('hidden');
+    dueInput.removeAttribute('required');
+    installmentsWrap.classList.remove('hidden');
+    statusWrap.classList.add('hidden');
+    methodInput.value = 'Cartao';
+    sub.textContent =
+      'Despesas no cartao: escolha o cartao, data da compra, classificacao, valor e parcelas. A compra entra na fatura; o caixa so muda quando a fatura for paga.';
+    return;
+  }
+  dueWrap.classList.remove('hidden');
+  dueInput.setAttribute('required', 'required');
+  installmentsWrap.classList.add('hidden');
+  statusWrap.classList.remove('hidden');
+  methodInput.value = DEFAULT_TRANSACTION_METHOD;
+  sub.textContent =
+    'Despesas no PIX: escolha a conta debitada, data de lancamento, data de pagamento, classificacao, valor e status.';
+}
+
 function txnModalTypeOptionsHtml(three: boolean): string {
   const base =
     '<option value="entrada">Receita</option><option value="saida">Despesa</option>';
@@ -451,18 +659,23 @@ function syncTxnFormUI(keepStatus?: TxnStatus): void {
   const statusWrap = getEl('txnStatusWrap');
   const catWrap = getEl('txnCategoryWrap');
   const methodWrap = getEl('txnMethodWrap');
+  const installmentsWrap = getEl('txnInstallmentsWrap');
   const invWrap = getEl('txnUnifiedInvWrap');
   const bankLbl = getEl('txnBankLabel');
   const sub = getEl('txnModalSubtitle');
   const descLbl = getEl('txnDescriptionLabel');
+  const dueLbl = getEl('txnDueDateLabel');
+  const methodInput = getEl<HTMLInputElement>('txnMethod');
 
   if (mode === 'investimento') {
+    fillTxnPaymentSourceSelect('investimento', getEl<HTMLSelectElement>('txnBank').value);
     dueWrap.classList.add('hidden');
     getEl<HTMLInputElement>('txnDueDate').removeAttribute('required');
     expenseWrap.classList.add('hidden');
     statusWrap.classList.add('hidden');
     catWrap.classList.add('hidden');
     methodWrap.classList.add('hidden');
+    installmentsWrap.classList.add('hidden');
     invWrap.classList.remove('hidden');
     getEl('txnBankWrap').classList.remove('hidden');
     getEl<HTMLSelectElement>('txnBank').setAttribute('required', 'required');
@@ -476,13 +689,19 @@ function syncTxnFormUI(keepStatus?: TxnStatus): void {
 
   invWrap.classList.add('hidden');
   catWrap.classList.remove('hidden');
-  methodWrap.classList.remove('hidden');
+  methodWrap.classList.add('hidden');
+  installmentsWrap.classList.add('hidden');
   statusWrap.classList.remove('hidden');
 
   const type = mode;
   dueWrap.classList.remove('hidden');
   getEl<HTMLInputElement>('txnDueDate').setAttribute('required', 'required');
   if (type === 'entrada') {
+    fillTxnPaymentSourceSelect('entrada', getEl<HTMLSelectElement>('txnBank').value);
+    dueLbl.innerHTML = 'Data de recebimento <span class="req-mark">*</span>';
+    methodInput.value = DEFAULT_TRANSACTION_METHOD;
+    methodInput.readOnly = true;
+    methodInput.placeholder = '';
     expenseWrap.classList.add('hidden');
     getEl<HTMLSelectElement>('txnExpenseKind').value = '';
     if (state.banks.length) {
@@ -494,15 +713,22 @@ function syncTxnFormUI(keepStatus?: TxnStatus): void {
       getEl<HTMLSelectElement>('txnBank').removeAttribute('required');
     }
     sub.textContent =
-      'Receitas: indique a conta creditada, data do lançamento, classificação, valor, status e forma de pagamento. A data de vencimento é obrigatória (ex.: quando o crédito cai na conta).';
+      'Receitas: indique a conta creditada, data de lançamento, classificação, valor e status. A data de recebimento é obrigatória (ex.: quando o crédito cai na conta). Forma de pagamento: PIX.';
     descLbl.textContent = 'Descrição';
   } else {
+    dueLbl.innerHTML = 'Data de pagamento <span class="req-mark">*</span>';
+    fillTxnPaymentSourceSelect('saida', getEl<HTMLSelectElement>('txnBank').value);
+    methodInput.readOnly = true;
+    methodInput.placeholder = '';
     getEl('txnBankWrap').classList.remove('hidden');
-    bankLbl.textContent = 'Banco / conta debitada';
+    bankLbl.textContent = 'Banco / conta debitada ou cartao';
     getEl<HTMLSelectElement>('txnBank').setAttribute('required', 'required');
-    expenseWrap.classList.remove('hidden');
+    expenseWrap.classList.add('hidden');
+    fillTxnExpenseKindSelect();
+    updateTxnPaymentSourceUI();
     sub.textContent =
-      'Despesas: escolha a conta debitada, data de vencimento obrigatória, classificação, tipo fixo ou variável, valor, status e forma de pagamento.';
+      'Despesas: escolha a conta debitada, data de lançamento, data de pagamento, classificação, tipo fixo, variável ou cartão, valor, status e forma de pagamento.';
+    updateTxnPaymentSourceUI();
     descLbl.textContent = 'Descrição';
   }
 
@@ -540,7 +766,7 @@ function toast(message: string, type?: 'success' | 'error'): void {
 /** Rótulo em selects: instituição + tipo de conta (+ observação) para distinguir cadastros repetidos. */
 function bankOptionLabel(b: Bank): string {
   const name = (b.name ?? '').trim() || 'Sem nome';
-  const tipo = (b.accountType ?? '').trim() || 'Sem tipo';
+  const tipo = normalizedBankAccountType(b);
   const note = (b.note ?? '').trim();
   if (!note) return `${name} — ${tipo}`;
   const short = note.length > 56 ? `${note.slice(0, 56)}…` : note;
@@ -556,10 +782,29 @@ function bankInstitutionDisplayName(b: Bank): string {
 /** Detalhe completo da conta para tooltip (observação sem truncar). */
 function bankFullDetailLabel(b: Bank): string {
   const name = (b.name ?? '').trim() || 'Sem nome';
-  const tipo = (b.accountType ?? '').trim() || 'Sem tipo';
+  const tipo = normalizedBankAccountType(b);
   const note = (b.note ?? '').trim();
   if (!note) return `${name} — ${tipo}`;
   return `${name} — ${tipo} · ${note}`;
+}
+
+function normalizedBankAccountType(b: Bank): string {
+  const raw = (b.accountType ?? '').trim();
+  if (/invest/i.test(raw) && /empres/i.test(raw)) return 'Conta investimento empresarial';
+  if (/invest/i.test(raw)) return 'Conta investimento';
+  return raw || 'Sem tipo';
+}
+
+function isInvestmentBankAccount(b: Bank): boolean {
+  return normalizedBankAccountType(b).includes('investimento');
+}
+
+function operationalBankAccounts(): Bank[] {
+  return state.banks.filter((b) => !isInvestmentBankAccount(b));
+}
+
+function investmentBankAccounts(): Bank[] {
+  return state.banks.filter(isInvestmentBankAccount);
 }
 
 function bankLabelById(id: string | undefined | null): string {
@@ -599,6 +844,14 @@ function computeTotals(txns?: Transaction[]): { income: number; expense: number;
   return { income, expense, balance: income - expense };
 }
 
+function isTxnRealized(t: Transaction): boolean {
+  return t.type === 'entrada' ? t.status === 'recebido' : t.status === 'pago';
+}
+
+function computeRealizedTotals(txns?: Transaction[]): { income: number; expense: number; balance: number } {
+  return computeTotals((txns ?? state.transactions).filter(isTxnRealized));
+}
+
 function investmentAggForBank(bankId: string): { invested: number; invCount: number } {
   let invested = 0;
   let invCount = 0;
@@ -624,7 +877,7 @@ function bankSummaries(): {
   return state.banks
     .map((bank) => {
       const txns = state.transactions.filter((t) => t.bankId === bank.id);
-      const { income, expense, balance } = computeTotals(txns);
+      const { income, expense, balance } = computeRealizedTotals(txns);
       const { invested, invCount } = investmentAggForBank(bank.id);
       return {
         bank,
@@ -731,9 +984,10 @@ function totalConsolidatedPatrimony(): number {
 }
 
 function renderPatrimonyGoalStrip(): void {
-  const total = totalConsolidatedPatrimony();
+  const period = dashboardPeriod();
+  const total = consolidatedPatrimonyUntil(period.cutoff);
   getEl('kpiTotalPatrimony').textContent = brl(total);
-  const year = new Date().getFullYear();
+  const year = period.year;
   const ytdInvested = investmentsYearTotal(year);
   const goal = Number(state.annualInvestmentGoal ?? 0);
   const goalEl = getEl('kpiGoalDisplay');
@@ -820,6 +1074,14 @@ function addDaysIso(baseIso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function todayIsoLocal(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 function currentMonthRange(): { start: string; end: string } {
   const now = new Date();
   const y = now.getFullYear();
@@ -830,8 +1092,132 @@ function currentMonthRange(): { start: string; end: string } {
   };
 }
 
+type DashboardPeriod = {
+  year: number;
+  month: number;
+  start: string;
+  end: string;
+  cutoff: string;
+  isCurrentMonth: boolean;
+  isFutureMonth: boolean;
+  label: string;
+};
+
+type CashflowPeriod = DashboardPeriod;
+
+function isoInLocalMonth(year: number, monthIndex: number, day: number): string {
+  const d = new Date(year, monthIndex, day, 12);
+  return d.toISOString().slice(0, 10);
+}
+
+function periodFromYearMonth(year: number, month: number): DashboardPeriod {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  const start = isoInLocalMonth(year, month, 1);
+  const end = isoInLocalMonth(year, month + 1, 0);
+  const today = todayIsoLocal();
+  const isCurrentMonth = year === currentYear && month === currentMonth;
+  const isFutureMonth = year > currentYear || (year === currentYear && month > currentMonth);
+  return {
+    year,
+    month,
+    start,
+    end,
+    cutoff: isCurrentMonth ? today : end,
+    isCurrentMonth,
+    isFutureMonth,
+    label: `${DASHBOARD_MONTH_LABELS[month]} ${year}`,
+  };
+}
+
+function dashboardPeriod(): DashboardPeriod {
+  return periodFromYearMonth(dashboardYear, dashboardMonth);
+}
+
+function cashflowPeriod(): CashflowPeriod {
+  return periodFromYearMonth(cashflowYear, cashflowMonth);
+}
+
+function txnPeriodDate(t: Transaction): string {
+  return t.dueDate || t.date || '';
+}
+
+function transactionsInPeriod(period = dashboardPeriod()): Transaction[] {
+  return state.transactions.filter((t) => {
+    const d = txnPeriodDate(t);
+    return d >= period.start && d <= period.end;
+  });
+}
+
+function investmentsInPeriod(period = dashboardPeriod()): Investment[] {
+  return state.investments.filter((inv) => (inv.date ?? '') >= period.start && (inv.date ?? '') <= period.end);
+}
+
+function totalInvestedUntil(cutoff: string): number {
+  return state.investments
+    .filter((inv) => (inv.date ?? '') <= cutoff)
+    .reduce((s, inv) => s + Number(inv.amount ?? 0), 0);
+}
+
+function consolidatedPatrimonyUntil(cutoff: string): number {
+  const txns = state.transactions.filter((t) => txnPeriodDate(t) <= cutoff);
+  return computeTotals(txns).balance + totalInvestedUntil(cutoff);
+}
+
+function loadDashboardPeriodPreference(): void {
+  const raw = localStorage.getItem(DASHBOARD_PERIOD_KEY);
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw) as { year?: unknown; month?: unknown };
+    const y = Number(parsed.year);
+    const m = Number(parsed.month);
+    if (Number.isInteger(y) && y >= 2000 && y <= 2100) dashboardYear = y;
+    if (Number.isInteger(m) && m >= 0 && m <= 11) dashboardMonth = m;
+  } catch {
+    // Mantem o mes atual quando a preferencia local estiver invalida.
+  }
+}
+
+function saveDashboardPeriodPreference(): void {
+  localStorage.setItem(DASHBOARD_PERIOD_KEY, JSON.stringify({ year: dashboardYear, month: dashboardMonth }));
+}
+
+function loadCashflowPeriodPreference(): void {
+  const raw = localStorage.getItem(CASHFLOW_PERIOD_KEY);
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw) as { year?: unknown; month?: unknown };
+    const y = Number(parsed.year);
+    const m = Number(parsed.month);
+    if (Number.isInteger(y) && y >= 2000 && y <= 2100) cashflowYear = y;
+    if (Number.isInteger(m) && m >= 0 && m <= 11) cashflowMonth = m;
+  } catch {
+    // Mantem o mes atual quando a preferencia local estiver invalida.
+  }
+}
+
+function saveCashflowPeriodPreference(): void {
+  localStorage.setItem(CASHFLOW_PERIOD_KEY, JSON.stringify({ year: cashflowYear, month: cashflowMonth }));
+}
+
 function dashboardDecisionItemHtml(kind: 'ok' | 'warn' | 'info', label: string, value: string, detail: string): string {
-  return `<article class="decision-item decision-item--${kind}"><span class="decision-label">${esc(label)}</span><strong>${esc(value)}</strong><p>${esc(detail)}</p></article>`;
+  const icons: Record<string, string> = {
+    'Caixa do mes': '▣',
+    'Caixa do mês': '▣',
+    'Proximos 7 dias': '◌',
+    'Próximos 7 dias': '◌',
+    'Compromissos do periodo': '◌',
+    'Projecao do mes': '▤',
+    'Projeção do mês': '▤',
+    'Aporte do mes': '%',
+    'Aporte do mês': '%',
+    'Patrimonio ate corte': '◎',
+    'Patrimônio até corte': '◎',
+    Orcamento: '!',
+  };
+  const icon = icons[label] ?? '✓';
+  return `<article class="decision-item decision-item--${kind}"><div class="decision-item-head"><span class="decision-icon">${esc(icon)}</span><span class="decision-label">${esc(label)}</span></div><strong>${esc(value)}</strong><p>${esc(detail)}</p><span class="decision-check">✓</span></article>`;
 }
 
 type BehaviorSignal = {
@@ -1102,7 +1488,7 @@ function renderBehaviorPartner(): void {
     }
   }
 
-  const budgetRisk = budgetUsageRows().find((row) => row.pct >= 80);
+  const budgetRisk = budgetUsageRows().find((row) => row.pct >= 80)!;
   if (budgetRisk) {
     signals.push({
       kind: budgetRisk.pct >= 100 ? 'warn' : 'info',
@@ -1186,7 +1572,7 @@ function renderBehaviorPartner(): void {
 function renderSidebarTip(): void {
   const box = document.getElementById('sidebarTip');
   if (!box) return;
-  const budgetRisk = budgetUsageRows().find((row) => row.pct >= 80);
+  const budgetRisk = budgetUsageRows().find((row) => row.pct >= 80)!;
   if (budgetRisk) {
     box.innerHTML = `<span>Atencao</span><strong>${esc(budgetRisk.category)} em ${Math.round(budgetRisk.pct)}%</strong><p>Segure novas compras nessa categoria ate virar o mes.</p>`;
     return;
@@ -1255,9 +1641,107 @@ function renderSidebarEducationTip(): void {
     '<span>Inteligencia financeira</span><strong>Pequenos vazamentos contam.</strong><p>Compras pequenas repetidas podem pesar mais que uma despesa grande planejada.</p>';
 }
 
+function renderDashboardPeriodControls(): void {
+  const monthSel = document.getElementById('dashboardMonth') as HTMLSelectElement | null;
+  const yearInput = document.getElementById('dashboardYear') as HTMLInputElement | null;
+  const title = document.getElementById('dashboardPeriodTitle');
+  const hint = document.getElementById('dashboardPeriodHint');
+  if (!monthSel || !yearInput || !title || !hint) return;
+  if (!monthSel.options.length) {
+    monthSel.innerHTML = DASHBOARD_MONTH_LABELS.map((label, i) => `<option value="${i}">${esc(label)}</option>`).join('');
+  }
+  monthSel.value = String(dashboardMonth);
+  yearInput.value = String(dashboardYear);
+  const period = dashboardPeriod();
+  title.textContent = period.label;
+  hint.textContent = period.isFutureMonth
+    ? `Visao futura: compromissos e lancamentos previstos de ${dateBR(period.start)} a ${dateBR(period.end)}.`
+    : `Retrato ate ${dateBR(period.cutoff)}; receitas e despesas pela data de recebimento/pagamento.`;
+}
+
+function renderCashflowPeriodControls(): void {
+  const monthSel = document.getElementById('cashflowMonth') as HTMLSelectElement | null;
+  const yearInput = document.getElementById('cashflowYear') as HTMLInputElement | null;
+  const title = document.getElementById('cashflowPeriodTitle');
+  if (!monthSel || !yearInput || !title) return;
+  if (!monthSel.options.length) {
+    monthSel.innerHTML = DASHBOARD_MONTH_LABELS.map((label, i) => `<option value="${i}">${esc(label)}</option>`).join('');
+  }
+  monthSel.value = String(cashflowMonth);
+  yearInput.value = String(cashflowYear);
+  title.textContent = cashflowPeriod().label;
+}
+
 function renderDashboardDecisionCenter(): void {
   const container = document.getElementById('dashboardDecisionCenter');
   if (!container) return;
+  {
+  const period = dashboardPeriod();
+  const today = todayIsoLocal();
+  const windowStart = period.isCurrentMonth ? today : period.start;
+  const windowEnd = period.isCurrentMonth ? addDaysIso(today, 7) : period.end;
+  const monthTxnsForPeriod = transactionsInPeriod(period);
+  const monthTotalsForPeriod = computeTotals(monthTxnsForPeriod);
+  const monthInvestedForPeriod = investmentsInPeriod(period).reduce((s, inv) => s + Number(inv.amount ?? 0), 0);
+  const projectedForPeriod = monthTotalsForPeriod.income - monthTotalsForPeriod.expense - monthInvestedForPeriod;
+  const pendingForPeriod = state.transactions.filter((t) => {
+    if (t.type !== 'saida' || t.status === 'pago') return false;
+    const d = txnPeriodDate(t);
+    return d >= windowStart && d <= windowEnd;
+  });
+  const pendingTotalForPeriod = pendingForPeriod.reduce((s, t) => s + Number(t.amount ?? 0), 0);
+  const investedUntilCutoff = totalInvestedUntil(period.cutoff);
+  const patrimonyUntilCutoff = consolidatedPatrimonyUntil(period.cutoff);
+  const investRateForPeriod =
+    monthTotalsForPeriod.income > 0 ? (monthInvestedForPeriod / monthTotalsForPeriod.income) * 100 : 0;
+  const budgetRiskForPeriod = budgetUsageRows().find((row) => row.pct >= 80);
+  const itemsForPeriod = [
+    dashboardDecisionItemHtml(
+      monthTotalsForPeriod.balance >= 0 ? 'ok' : 'warn',
+      'Caixa do mes',
+      brl(monthTotalsForPeriod.balance),
+      monthTotalsForPeriod.balance >= 0 ? `Entradas superam saidas em ${period.label}.` : `Saidas superam entradas em ${period.label}.`
+    ),
+    dashboardDecisionItemHtml(
+      pendingForPeriod.length ? 'warn' : 'ok',
+      period.isCurrentMonth ? 'Proximos 7 dias' : 'Compromissos do periodo',
+      pendingForPeriod.length ? brl(pendingTotalForPeriod) : 'Sem alertas',
+      pendingForPeriod.length ? `${pendingForPeriod.length} despesa(s) pendente(s) no recorte.` : 'Nenhuma despesa pendente encontrada.'
+    ),
+    dashboardDecisionItemHtml(
+      projectedForPeriod >= 0 ? 'ok' : 'warn',
+      'Projecao do mes',
+      brl(projectedForPeriod),
+      'Receitas menos despesas e aportes com data no mes selecionado.'
+    ),
+    dashboardDecisionItemHtml(
+      investRateForPeriod >= 10 ? 'ok' : 'info',
+      'Aporte do mes',
+      monthTotalsForPeriod.income > 0 ? `${Math.round(investRateForPeriod)}%` : brl(monthInvestedForPeriod),
+      monthTotalsForPeriod.income > 0
+        ? `${brl(monthInvestedForPeriod)} aportados sobre ${brl(monthTotalsForPeriod.income)} de entradas.`
+        : 'Sem receitas no mes para calcular taxa.'
+    ),
+    dashboardDecisionItemHtml(
+      patrimonyUntilCutoff >= 0 ? 'ok' : 'warn',
+      'Patrimonio ate corte',
+      brl(patrimonyUntilCutoff),
+      `Caixa acumulado + ${brl(investedUntilCutoff)} em aportes ate ${dateBR(period.cutoff)}.`
+    ),
+  ];
+  if (budgetRiskForPeriod) {
+    itemsForPeriod.push(
+      dashboardDecisionItemHtml(
+        budgetRiskForPeriod.pct >= 100 ? 'warn' : 'info',
+        'Orcamento',
+        `${Math.round(budgetRiskForPeriod.pct)}%`,
+        `${budgetRiskForPeriod.category} ja consumiu ${brl(budgetRiskForPeriod.used)} de ${brl(budgetRiskForPeriod.limit)}.`
+      )
+    );
+  }
+  container.innerHTML = itemsForPeriod.join('');
+  return;
+  }
   const today = new Date().toISOString().slice(0, 10);
   const weekEnd = addDaysIso(today, 7);
   const { start: monthStart, end: monthEnd } = currentMonthRange();
@@ -1285,7 +1769,7 @@ function renderDashboardDecisionCenter(): void {
   const topTotal = top ? top.balance + top.invested : 0;
   const consolidated = totalConsolidatedPatrimony();
   const concentrationPct = consolidated > 0 && top ? (Math.max(0, topTotal) / consolidated) * 100 : 0;
-  const budgetRisk = budgetUsageRows().find((row) => row.pct >= 80);
+  const budgetRisk = budgetUsageRows().find((row) => row.pct >= 80)!;
 
   const items = [
     dashboardDecisionItemHtml(
@@ -1339,16 +1823,20 @@ function renderDashboardDecisionCenter(): void {
     );
   }
 
-  container.innerHTML = items.join('');
+  container!.innerHTML = items.join('');
 }
 
 function renderKPIs(): void {
-  const { income, expense, balance } = computeTotals();
+  const period = dashboardPeriod();
+  const periodTxns = transactionsInPeriod(period);
+  const periodInvestments = investmentsInPeriod(period);
+  const { income, expense, balance } = computeTotals(periodTxns);
   getEl('kpiBalance').textContent = brl(balance);
   getEl('kpiIncome').textContent = brl(income);
   getEl('kpiExpense').textContent = brl(expense);
-  getEl('kpiInvested').textContent = brl(totalInvestedPatrimony());
-  getEl('kpiCount').textContent = String(state.transactions.length + state.investments.length);
+  getEl('kpiInvested').textContent = brl(totalInvestedUntil(period.cutoff));
+  getEl('kpiCount').textContent = String(periodTxns.length + periodInvestments.length);
+  renderDashboardPeriodControls();
   renderPatrimonyGoalStrip();
   renderDashboardInsights();
   renderDashboardDecisionCenter();
@@ -1357,8 +1845,16 @@ function renderKPIs(): void {
 
 function renderDashboardRecent(): void {
   const container = getEl('dashboardRecent');
-  const items = mergedCashRowsSorted().slice(0, 8);
+  const period = dashboardPeriod();
+  const items = mergedCashRowsSorted()
+    .filter((row) => {
+      const d = row.kind === 'txn' ? txnPeriodDate(row.t) : row.inv.date;
+      return (d ?? '') >= period.start && (d ?? '') <= period.end;
+    })
+    .slice(0, 8);
   if (!items.length) {
+    container.innerHTML = '<div class="empty">Nenhum lancamento neste periodo.</div>';
+    return;
     container.innerHTML = '<div class="empty">Nenhum lançamento cadastrado ainda.</div>';
     return;
   }
@@ -1413,7 +1909,10 @@ function isTxnOverdue(t: Transaction, today = new Date().toISOString().slice(0, 
 
 function cashflowRowsFiltered(): MergedCashRow[] {
   const today = new Date().toISOString().slice(0, 10);
+  const period = cashflowPeriod();
   return mergedCashRowsSorted().filter((row) => {
+    const rowDate = row.kind === 'txn' ? txnPeriodDate(row.t) : row.inv.date;
+    if ((rowDate ?? '') < period.start || (rowDate ?? '') > period.end) return false;
     if (cashflowFilter === 'all') return true;
     if (cashflowFilter === 'investments') return row.kind === 'inv';
     if (row.kind !== 'txn') return false;
@@ -1437,23 +1936,27 @@ function renderCashflowTabs(): void {
 function renderCashflowSummary(): void {
   const container = document.getElementById('cashflowSummary');
   if (!container) return;
+  const period = cashflowPeriod();
   const today = new Date().toISOString().slice(0, 10);
-  const weekEnd = addDaysIso(today, 7);
-  const pendingPayables = state.transactions.filter((t) => t.type === 'saida' && isTxnPending(t));
-  const pendingReceivables = state.transactions.filter((t) => t.type === 'entrada' && isTxnPending(t));
-  const overdue = state.transactions.filter((t) => isTxnOverdue(t, today));
+  const weekStart = period.isCurrentMonth ? today : period.start;
+  const weekEnd = period.isCurrentMonth ? addDaysIso(today, 7) : period.end;
+  const periodTxns = transactionsInPeriod(period);
+  const periodInvestments = investmentsInPeriod(period);
+  const pendingPayables = periodTxns.filter((t) => t.type === 'saida' && isTxnPending(t));
+  const pendingReceivables = periodTxns.filter((t) => t.type === 'entrada' && isTxnPending(t));
+  const overdue = periodTxns.filter((t) => isTxnOverdue(t, today));
   const dueWeek = pendingPayables.filter((t) => {
     const due = txnDueKey(t);
-    return due >= today && due <= weekEnd;
+    return due >= weekStart && due <= weekEnd;
   });
   const sum = (rows: Transaction[]) => rows.reduce((total, t) => total + Number(t.amount ?? 0), 0);
-  const invested = totalInvestedPatrimony();
+  const invested = periodInvestments.reduce((total, inv) => total + Number(inv.amount ?? 0), 0);
   container.innerHTML = [
-    `<div class="cashflow-stat cashflow-stat--danger"><span>A pagar</span><strong>${brl(sum(pendingPayables))}</strong><p>${pendingPayables.length} compromisso(s) pendente(s)</p></div>`,
-    `<div class="cashflow-stat cashflow-stat--success"><span>A receber</span><strong>${brl(sum(pendingReceivables))}</strong><p>${pendingReceivables.length} entrada(s) pendente(s)</p></div>`,
-    `<div class="cashflow-stat cashflow-stat--warn"><span>Atrasados</span><strong>${brl(sum(overdue))}</strong><p>${overdue.length} item(ns) fora do prazo</p></div>`,
-    `<div class="cashflow-stat cashflow-stat--info"><span>Prox. 7 dias</span><strong>${brl(sum(dueWeek))}</strong><p>${dueWeek.length} despesa(s) no periodo</p></div>`,
-    `<div class="cashflow-stat cashflow-stat--invest"><span>Aportes</span><strong>${brl(invested)}</strong><p>${state.investments.length} registro(s) de investimento</p></div>`,
+    `<div class="cashflow-stat cashflow-stat--danger"><span><i aria-hidden="true">!</i>A pagar</span><strong>${brl(sum(pendingPayables))}</strong><p>${pendingPayables.length} compromisso(s) pendente(s)</p></div>`,
+    `<div class="cashflow-stat cashflow-stat--success"><span><i aria-hidden="true">↓</i>A receber</span><strong>${brl(sum(pendingReceivables))}</strong><p>${pendingReceivables.length} entrada(s) pendente(s)</p></div>`,
+    `<div class="cashflow-stat cashflow-stat--warn"><span><i aria-hidden="true">⌁</i>Atrasados</span><strong>${brl(sum(overdue))}</strong><p>${overdue.length} item(ns) fora do prazo</p></div>`,
+    `<div class="cashflow-stat cashflow-stat--info"><span><i aria-hidden="true">7</i>Prox. 7 dias</span><strong>${brl(sum(dueWeek))}</strong><p>${dueWeek.length} despesa(s) no periodo</p></div>`,
+    `<div class="cashflow-stat cashflow-stat--invest"><span><i aria-hidden="true">$</i>Aportes</span><strong>${brl(invested)}</strong><p>${periodInvestments.length} registro(s) de investimento</p></div>`,
   ].join('');
 }
 
@@ -1628,6 +2131,7 @@ function parseCsvImport(text: string): CsvImportRow[] {
     let expenseKind: ExpenseKind | undefined;
     if (recRaw.includes('vari')) expenseKind = 'variavel';
     else if (recRaw.includes('fix')) expenseKind = 'fixa';
+    else if (recRaw.includes('cart')) expenseKind = 'cartao';
     const status: TxnStatus | undefined =
       type === 'entrada'
         ? dueDate > today
@@ -1959,7 +2463,16 @@ function renderAssistantPreview(): void {
     '<option value="">Selecione a conta</option>' +
     state.banks.map((b) => `<option value="${esc(b.id)}"${b.id === tx.bankId ? ' selected' : ''}>${esc(bankOptionLabel(b))}</option>`).join('');
   const typeOptions = `<option value="entrada"${tx.type === 'entrada' ? ' selected' : ''}>Receita</option><option value="saida"${tx.type === 'saida' ? ' selected' : ''}>Despesa</option>`;
-  const expenseKindOptions = `<option value="variavel"${tx.expenseKind === 'variavel' ? ' selected' : ''}>Variavel</option><option value="fixa"${tx.expenseKind === 'fixa' ? ' selected' : ''}>Fixa</option>`;
+  const expenseKindOptions =
+    `<option value="variavel"${tx.expenseKind === 'variavel' ? ' selected' : ''}>Variavel</option>` +
+    `<option value="fixa"${tx.expenseKind === 'fixa' ? ' selected' : ''}>Fixa</option>` +
+    `<option value="cartao"${tx.expenseKind === 'cartao' && !tx.expenseCardId ? ' selected' : ''}>Cartao</option>` +
+    state.creditCards
+      .map(
+        (card) =>
+          `<option value="card:${esc(card.id)}"${tx.expenseCardId === card.id ? ' selected' : ''}>${esc(creditCardOptionLabel(card))}</option>`
+      )
+      .join('');
   box.classList.remove('hidden');
   box.innerHTML = `
     <div class="ai-preview-head">
@@ -1991,7 +2504,14 @@ function syncAssistantDraftFromPreview(): boolean {
   const typeRaw = getEl<HTMLSelectElement>('aiDraftType').value;
   const type: TxnType = isTxnType(typeRaw) ? typeRaw : 'saida';
   const expenseKindRaw = document.getElementById('aiDraftExpenseKind') as HTMLSelectElement | null;
-  const expenseKind = expenseKindRaw && isExpenseKind(expenseKindRaw.value) ? expenseKindRaw.value : undefined;
+  const expenseKindValue = expenseKindRaw?.value ?? '';
+  const expenseCardId = expenseKindValue.startsWith('card:') ? expenseKindValue.slice(5) : undefined;
+  const expenseKind =
+    expenseCardId && state.creditCards.some((card) => card.id === expenseCardId)
+      ? 'cartao'
+      : isExpenseKind(expenseKindValue)
+        ? expenseKindValue
+        : undefined;
   const next: Transaction = {
     ...assistantDraft.tx,
     type,
@@ -2003,8 +2523,12 @@ function syncAssistantDraftFromPreview(): boolean {
     method: getEl<HTMLInputElement>('aiDraftMethod').value.trim(),
     description: getEl<HTMLTextAreaElement>('aiDraftDescription').value.trim().slice(0, 500),
     ...(type === 'saida' && expenseKind ? { expenseKind } : {}),
+    ...(type === 'saida' && expenseCardId ? { expenseCardId } : {}),
   };
-  if (type === 'entrada') delete next.expenseKind;
+  if (type === 'entrada') {
+    delete next.expenseKind;
+    delete next.expenseCardId;
+  }
   next.status = defaultAssistantStatus(type, next.date, normalizeAssistantText(assistantDraft.source));
   assistantDraft.tx = next;
   assistantDraft.missing = assistantMissingFields(assistantDraft.tx);
@@ -2082,6 +2606,7 @@ async function saveAssistantCreditDraft(): Promise<void> {
 
 function renderTransactionsTable(): void {
   const container = getEl('transactionsTable');
+  renderCashflowPeriodControls();
   renderCashflowTabs();
   renderCashflowSummary();
   renderCashflowRecurrences();
@@ -2090,22 +2615,37 @@ function renderTransactionsTable(): void {
     container.innerHTML = '<div class="empty">Nenhum item encontrado para o filtro atual.</div>';
     return;
   }
+  const td = (value: string | number | undefined | null, className = ''): string => {
+    const text = esc(value ?? '-');
+    return `<td${className ? ` class="${className}"` : ''} title="${text}">${text}</td>`;
+  };
   const rowHtml = (r: MergedCashRow): string => {
     if (r.kind === 'txn') {
       const t = r.t;
-      return `<tr><td>${dateBR(t.date)}</td><td>${dateBR(t.dueDate)}</td><td>${esc(bankLabelById(t.bankId))}</td><td>—</td><td><span class="${launchTypeTagClass(t.type)}">${esc(typeLabel(t.type))}</span></td><td>${t.type === 'saida' ? esc(expenseKindLabel(t.expenseKind)) : '—'}</td><td>${esc(statusLabel(t.status))}</td><td>${esc(t.category ?? '-')}</td><td>${esc(t.description ?? '-')}</td><td>${esc(t.method ?? '-')}</td><td class="${t.type === 'entrada' ? 'positive' : 'negative'}">${brl(t.amount)}</td><td><div class="row-actions"><button type="button" class="btn ghost" data-edit-txn="${esc(t.id)}">Editar</button><button type="button" class="btn danger" data-delete-txn="${esc(t.id)}">Excluir</button></div></td></tr>`;
+      const desc = esc(t.description ?? '-');
+      const kind = typeLabel(t.type);
+      const nature = t.type === 'saida' ? expenseKindLabel(t.expenseKind, t.expenseCardId) : '—';
+      const value = brl(t.amount);
+      return `<tr>${td(dateBR(t.dueDate))}${td(bankLabelById(t.bankId))}<td title="${esc(kind)}"><span class="${launchTypeTagClass(t.type)}">${esc(kind)}</span></td>${td(nature)}<td>${txnStatusSelectHtml(t)}</td>${td(t.category ?? '-')}<td title="${desc}">${desc}</td>${td(t.method ?? '-')}${td(value, t.type === 'entrada' ? 'positive' : 'negative')}<td><div class="row-actions"><button type="button" class="btn ghost" data-edit-txn="${esc(t.id)}">Editar</button><button type="button" class="btn danger" data-delete-txn="${esc(t.id)}">Excluir</button></div></td></tr>`;
+      return `<tr><td>${dateBR(t.date)}</td><td>${dateBR(t.dueDate)}</td><td>${esc(bankLabelById(t.bankId))}</td><td>—</td><td><span class="${launchTypeTagClass(t.type)}">${esc(typeLabel(t.type))}</span></td><td>${t.type === 'saida' ? esc(expenseKindLabel(t.expenseKind, t.expenseCardId)) : '—'}</td><td>${esc(statusLabel(t.status))}</td><td>${esc(t.category ?? '-')}</td><td title="${desc}">${desc}</td><td>${esc(t.method ?? '-')}</td><td class="${t.type === 'entrada' ? 'positive' : 'negative'}">${brl(t.amount)}</td><td><div class="row-actions"><button type="button" class="btn ghost" data-edit-txn="${esc(t.id)}">Editar</button><button type="button" class="btn danger" data-delete-txn="${esc(t.id)}">Excluir</button></div></td></tr>`;
     }
     const inv = r.inv;
     const bid = resolveInvestmentBankId(inv);
     const desc = (inv.notes ?? '').trim() || inv.institution;
-    return `<tr><td>${dateBR(inv.date)}</td><td>—</td><td>${esc(bankLabelById(bid || undefined))}</td><td>${esc(savingsGoalDisplayName(inv.savingsGoalId))}</td><td><span class="${launchTypeTagClass('investimento')}">Investimento</span></td><td>—</td><td>—</td><td>${esc(inv.type)}</td><td>${esc(desc)}</td><td>—</td><td class="kpi-invest-value">${brl(inv.amount)}</td><td><div class="row-actions"><button type="button" class="btn ghost" data-edit-inv="${esc(inv.id)}">Editar</button><button type="button" class="btn danger" data-delete-inv="${esc(inv.id)}">Excluir</button></div></td></tr>`;
+    return `<tr>${td(dateBR(inv.date))}${td(bankLabelById(bid || undefined))}<td title="Investimento"><span class="${launchTypeTagClass('investimento')}">Investimento</span></td>${td('�')}<td>�</td>${td(inv.type)}<td title="${esc(desc)}">${esc(desc)}</td>${td('�')}${td(brl(inv.amount), 'kpi-invest-value')}<td><div class="row-actions"><button type="button" class="btn ghost" data-edit-inv="${esc(inv.id)}">Editar</button><button type="button" class="btn danger" data-delete-inv="${esc(inv.id)}">Excluir</button></div></td></tr>`;
+    return `<tr><td>${dateBR(inv.date)}</td><td>—</td><td>${esc(bankLabelById(bid || undefined))}</td><td>${esc(savingsGoalDisplayName(inv.savingsGoalId))}</td><td><span class="${launchTypeTagClass('investimento')}">Investimento</span></td><td>—</td><td>—</td><td>${esc(inv.type)}</td><td title="${esc(desc)}">${esc(desc)}</td><td>—</td><td class="kpi-invest-value">${brl(inv.amount)}</td><td><div class="row-actions"><button type="button" class="btn ghost" data-edit-inv="${esc(inv.id)}">Editar</button><button type="button" class="btn danger" data-delete-inv="${esc(inv.id)}">Excluir</button></div></td></tr>`;
   };
   const colgroup =
     '<colgroup>' +
-    ['7%', '6%', '12%', '7%', '8%', '7%', '8%', '9%', '13%', '6%', '8%', '11%']
+    ['7%', '16%', '7%', '7%', '11%', '8%', '18%', '7%', '9%', '10%']
       .map((w) => `<col style="width:${w}" />`)
       .join('') +
     '</colgroup>';
+  container.innerHTML =
+    `<table class="table-launch">${colgroup}<thead><tr><th>Venc.</th><th>Banco</th><th>Tipo</th><th>Natureza</th><th>Status</th><th>Cat.</th><th>Descr.</th><th>Forma</th><th>Valor</th><th>Acoes</th></tr></thead><tbody>` +
+    merged.map(rowHtml).join('') +
+    '</tbody></table>';
+  return;
   container.innerHTML =
     `<table class="table-launch">${colgroup}<thead><tr><th>Data</th><th>Venc.</th><th>Banco</th><th>Meta</th><th>Tipo</th><th>Natureza</th><th>Status</th><th>Cat.</th><th>Descr.</th><th>Forma</th><th>Valor</th><th>Ações</th></tr></thead><tbody>` +
     merged.map(rowHtml).join('') +
@@ -2118,10 +2658,31 @@ function renderBanksList(): void {
     container.innerHTML = '<div class="empty">Nenhum banco cadastrado.</div>';
     return;
   }
+  {
+    const row = (b: Bank) => {
+      const txns = state.transactions.filter((t) => t.bankId === b.id);
+      const totals = computeRealizedTotals(txns);
+      const { invested: invSum, invCount } = investmentAggForBank(b.id);
+      const meta = [normalizedBankAccountType(b), b.code ? `Cod. ${b.code}` : '', b.note ?? ''].filter(Boolean).join(' · ');
+      const movLine = invCount > 0 ? `${txns.length} lanc. · ${invCount} aporte(s)` : `${txns.length} lancamento(s)`;
+      const totalAtBank = totals.balance + invSum;
+      const breakdown =
+        invSum > 0 && totals.balance !== 0
+          ? `<div class="small muted" style="margin-top:2px">Caixa: <span class="${totals.balance >= 0 ? 'positive' : 'negative'}">${brl(totals.balance)}</span> · Aportes: <span class="kpi-invest-value">${brl(invSum)}</span></div>`
+          : '';
+      return `<div class="bank-item"><div class="bank-item-main"><strong>${esc(b.name)}</strong><span class="muted small bank-item-meta" title="${esc(meta)}">${esc(meta)}</span></div><div class="bank-item-aside"><div><span class="${totalAtBank >= 0 ? 'positive' : 'negative'}">${brl(totalAtBank)}</span></div>${breakdown}<div class="small muted">${movLine}</div><div class="row-actions bank-item-actions"><button type="button" class="btn ghost" data-edit-bank="${esc(b.id)}">Editar</button><button type="button" class="btn danger" data-delete-bank="${esc(b.id)}">Excluir</button></div></div></div>`;
+    };
+    const section = (title: string, banks: Bank[]) =>
+      banks.length ? `<div class="bank-list-section"><h4>${esc(title)}</h4>${banks.map(row).join('')}</div>` : '';
+    container.innerHTML =
+      section('Contas correntes e operacionais', operationalBankAccounts()) +
+      section('Contas de investimento', investmentBankAccounts());
+    return;
+  }
   container.innerHTML = state.banks
     .map((b) => {
       const txns = state.transactions.filter((t) => t.bankId === b.id);
-      const totals = computeTotals(txns);
+      const totals = computeRealizedTotals(txns);
       const { invested: invSum, invCount } = investmentAggForBank(b.id);
       const meta = [b.accountType ?? 'Sem tipo', b.code ? `Cód. ${b.code}` : '', b.note ?? ''].filter(Boolean).join(' · ');
       const movLine =
@@ -2141,7 +2702,29 @@ function renderBanksList(): void {
 function renderReports(): void {
   const byBank = getEl('reportByBank');
   const bankRows = bankSummaries();
-  byBank.innerHTML = bankRows.length
+  {
+    const renderAccountPosition = (title: string, rows: typeof bankRows): string => {
+      if (!rows.length) return '';
+      return (
+        `<div class="report-account-section"><h4>${esc(title)}</h4>` +
+        '<table><thead><tr><th>Conta</th><th>Caixa</th><th>Investimentos</th><th>Total</th><th>Movimentos</th></tr></thead><tbody>' +
+        rows
+          .map((r) => {
+            const total = r.balance + r.invested;
+            return `<tr><td><span class="bank-summary-name" title="${esc(bankFullDetailLabel(r.bank))}">${esc(bankInstitutionDisplayName(r.bank))}</span><br><span class="muted small">${esc(normalizedBankAccountType(r.bank))}</span></td><td class="${r.balance >= 0 ? 'positive' : 'negative'}">${brl(r.balance)}</td><td class="kpi-invest-value">${brl(r.invested)}</td><td class="${total >= 0 ? 'positive' : 'negative'}">${brl(total)}</td><td class="muted small">${r.txnCount} lanc. + ${r.invCount} aport.</td></tr>`;
+          })
+          .join('') +
+        '</tbody></table></div>'
+      );
+    };
+    const sections =
+      renderAccountPosition('Contas correntes e operacionais', bankRows.filter((r) => !isInvestmentBankAccount(r.bank) && !/empres/i.test(normalizedBankAccountType(r.bank)))) +
+      renderAccountPosition('Contas correntes empresariais', bankRows.filter((r) => !isInvestmentBankAccount(r.bank) && /empres/i.test(normalizedBankAccountType(r.bank)))) +
+      renderAccountPosition('Contas investimento', bankRows.filter((r) => normalizedBankAccountType(r.bank) === 'Conta investimento')) +
+      renderAccountPosition('Contas investimento empresariais', bankRows.filter((r) => normalizedBankAccountType(r.bank) === 'Conta investimento empresarial'));
+    byBank.innerHTML = sections || '<div class="empty">Sem dados para exibir.</div>';
+  }
+  if (false) byBank.innerHTML = bankRows.length
     ? '<table><thead><tr><th>Banco</th><th>Entradas</th><th>Saídas</th><th>Saldo (caixa)</th><th>Investimentos</th><th>Itens</th></tr></thead><tbody>' +
       bankRows
         .map(
@@ -2270,7 +2853,7 @@ function renderMonthlyDetailHtml(year: number, monthIndex0: number): string {
     .sort(sortTxnsByVencimento)
     .map(
       (t) =>
-        `<tr><td>${dateBR(txnVencimentoKey(t)!)}</td><td>${dateBR(t.date)}</td><td>${esc(expenseKindLabel(t.expenseKind))}</td><td>${esc(t.category ?? '—')}</td><td class="negative">${brl(t.amount)}</td><td>${esc(bankLabelById(t.bankId))}</td><td>${esc(t.description || '—')}</td></tr>`
+        `<tr><td>${dateBR(txnVencimentoKey(t)!)}</td><td>${dateBR(t.date)}</td><td>${esc(expenseKindLabel(t.expenseKind, t.expenseCardId))}</td><td>${esc(t.category ?? '—')}</td><td class="negative">${brl(t.amount)}</td><td>${esc(bankLabelById(t.bankId))}</td><td>${esc(t.description || '—')}</td></tr>`
     )
     .join('');
 
@@ -2559,9 +3142,10 @@ function creditCardUsed(cardId: string): number {
 
 function populateCreditCardControls(): void {
   const bank = document.getElementById('creditCardBank') as HTMLSelectElement | null;
+  const opBanks = operationalBankAccounts();
   const bankOptions =
     '<option value="">Sem conta vinculada</option>' +
-    state.banks.map((b) => `<option value="${esc(b.id)}">${esc(bankOptionLabel(b))}</option>`).join('');
+    opBanks.map((b) => `<option value="${esc(b.id)}">${esc(bankOptionLabel(b))}</option>`).join('');
   if (bank) {
     bank.innerHTML = bankOptions;
   }
@@ -2590,8 +3174,8 @@ function populateCreditCardControls(): void {
     const current = paymentBank.value;
     paymentBank.innerHTML =
       '<option value="">Selecione a conta</option>' +
-      state.banks.map((b) => `<option value="${esc(b.id)}">${esc(bankOptionLabel(b))}</option>`).join('');
-    if (current && state.banks.some((b) => b.id === current)) paymentBank.value = current;
+      opBanks.map((b) => `<option value="${esc(b.id)}">${esc(bankOptionLabel(b))}</option>`).join('');
+    if (current && opBanks.some((b) => b.id === current)) paymentBank.value = current;
   }
   const date = document.getElementById('creditPurchaseDate') as HTMLInputElement | null;
   if (date && !date.value) date.value = new Date().toISOString().slice(0, 10);
@@ -2929,6 +3513,11 @@ function deleteCreditCard(id: string): void {
   state.creditCards = state.creditCards.filter((card) => card.id !== id);
   state.creditCardPurchases = state.creditCardPurchases.filter((p) => p.cardId !== id);
   state.creditCardPayments = state.creditCardPayments.filter((p) => p.cardId !== id);
+  state.transactions = state.transactions.map((t) => {
+    if (t.expenseCardId !== id) return t;
+    const { expenseCardId: _expenseCardId, ...rest } = t;
+    return rest;
+  });
   renderAll();
   toast('Cartao removido.', 'success');
 }
@@ -3011,10 +3600,22 @@ function addCatalogInvType(): void {
 }
 
 function populateInvBankSelect(): void {
-  const sel = document.getElementById('invBank') as HTMLSelectElement | null;
+  {
+    const sel = document.getElementById('invBank') as HTMLSelectElement | null;
+    if (!sel) return;
+    const inv = investmentBankAccounts();
+    const op = operationalBankAccounts();
+    const group = (label: string, banks: Bank[]) =>
+      banks.length
+        ? `<optgroup label="${esc(label)}">${banks.map((b) => `<option value="${esc(b.id)}">${esc(bankOptionLabel(b))}</option>`).join('')}</optgroup>`
+        : '';
+    sel.innerHTML = '<option value="">-- Sem vinculo</option>' + group('Contas investimento', inv) + group('Outras contas', op);
+    return;
+  }
+  const sel = document.getElementById('invBank') as HTMLSelectElement;
   if (!sel) return;
   const head = '<option value="">— Sem vínculo</option>';
-  sel.innerHTML = state.banks.length
+  if (sel) sel.innerHTML = state.banks.length
     ? head + state.banks.map((b) => `<option value="${esc(b.id)}">${esc(bankOptionLabel(b))}</option>`).join('')
     : head;
 }
@@ -3262,6 +3863,8 @@ function deleteInvestment(id: string): void {
 }
 
 function populateBankSelects(): void {
+  fillTxnPaymentSourceSelect(getTxnModalMode(), getEl<HTMLSelectElement>('txnBank').value);
+  return;
   const head = '<option value="">— Selecione a conta —</option>';
   getEl<HTMLSelectElement>('txnBank').innerHTML = state.banks.length
     ? head + state.banks.map((b) => `<option value="${esc(b.id)}">${esc(bankOptionLabel(b))}</option>`).join('')
@@ -3314,10 +3917,9 @@ const VIEW_META: Record<ViewId, [string, string]> = {
   behavior: ['Comportamento', 'Habitos financeiros, sinais de impulso e conselhos para proteger seu caixa.'],
   budgets: ['Orcamentos', 'Limites mensais por categoria, risco de estouro e alertas no dashboard.'],
   banks: ['Contas', 'Instituicoes, tipos de conta e posicao consolidada por banco.'],
-  cadastros: ['Parametros', 'Categorias, tipos de investimento e listas de apoio para padronizar registros.'],
   investments: ['Metas e Aportes', 'Aportes, metas, posicao por conta e evolucao do patrimonio.'],
   reports: ['Relatorios', 'Analise por banco, categoria, mes e ano.'],
-  settings: ['Dados e Seguranca', 'Backup, protecao local por senha e exportacao dos dados.'],
+  settings: ['Configuracoes', 'Categorias, contas, cartoes, backup, protecao local por senha e exportacao dos dados.'],
 };
 
 function switchView(view: ViewId): void {
@@ -3386,6 +3988,41 @@ function applySidebarPreference(collapsed: boolean): void {
   toggle.title = collapsed ? 'Expandir menu' : 'Recolher menu';
 }
 
+function applyAppTheme(theme: AppTheme): void {
+  document.body.dataset.theme = theme;
+  const select = document.getElementById('appThemeSelect') as HTMLSelectElement | null;
+  if (select) select.value = theme;
+  const toggle = document.getElementById('appThemeToggle') as HTMLButtonElement | null;
+  const label = toggle?.querySelector('.theme-toggle-label');
+  if (toggle) {
+    toggle.setAttribute('aria-label', theme === 'blue-glass' ? 'Ativar tema claro' : 'Ativar tema escuro');
+    toggle.title = theme === 'blue-glass' ? 'Tema claro' : 'Tema escuro';
+  }
+  if (label) label.textContent = theme === 'blue-glass' ? 'Claro' : 'Escuro';
+}
+
+function loadAppThemePreference(): void {
+  const raw = localStorage.getItem(APP_THEME_KEY);
+  applyAppTheme(raw === 'blue-glass' ? 'blue-glass' : 'light');
+}
+
+function initAppThemeControl(): void {
+  const select = document.getElementById('appThemeSelect') as HTMLSelectElement | null;
+  if (!select) return;
+  select.addEventListener('change', () => {
+    const theme: AppTheme = select.value === 'blue-glass' ? 'blue-glass' : 'light';
+    localStorage.setItem(APP_THEME_KEY, theme);
+    applyAppTheme(theme);
+  });
+  const toggle = document.getElementById('appThemeToggle') as HTMLButtonElement | null;
+  toggle?.addEventListener('click', () => {
+    const current = document.body.dataset.theme === 'blue-glass' ? 'blue-glass' : 'light';
+    const next: AppTheme = current === 'blue-glass' ? 'light' : 'blue-glass';
+    localStorage.setItem(APP_THEME_KEY, next);
+    applyAppTheme(next);
+  });
+}
+
 function initSidebarPreference(): void {
   const toggle = document.getElementById('sidebarToggle') as HTMLButtonElement | null;
   const initial = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
@@ -3399,6 +4036,61 @@ function initSidebarPreference(): void {
   });
 }
 
+function mountSettingsCadastros(): void {
+  const section = document.getElementById('settingsCadastros');
+  const mount = document.getElementById('settingsCadastrosMount');
+  if (!section || !mount || section.parentElement === mount) return;
+  section.classList.remove('hidden');
+  mount.appendChild(section);
+}
+
+function mountSettingsBanks(): void {
+  const mount = document.getElementById('settingsBanksMount');
+  if (!mount || mount.querySelector('[data-settings-banks]')) return;
+  const card = [...document.querySelectorAll<HTMLElement>('#view-banks .card')].find(
+    (item) => item.querySelector('h3')?.textContent?.trim() === 'Novo banco'
+  );
+  if (!card) return;
+  card.style.marginBottom = '18px';
+  card.dataset.settingsBanks = 'true';
+  mount.appendChild(card);
+}
+
+function mountSettingsCreditCards(): void {
+  const mount = document.getElementById('settingsCreditCardsMount');
+  if (!mount || mount.querySelector('[data-settings-credit-cards]')) return;
+  const cards = [...document.querySelectorAll<HTMLElement>('#view-creditCards .card')];
+  const newCard = cards.find((card) => card.querySelector('h3')?.textContent?.trim() === 'Novo cartao');
+  const listCard = cards.find((card) => card.querySelector('#creditCardsList'));
+  if (!newCard && !listCard) return;
+  const section = document.createElement('div');
+  section.className = 'two-col';
+  section.style.marginBottom = '18px';
+  section.dataset.settingsCreditCards = 'true';
+  if (newCard) section.appendChild(newCard);
+  if (listCard) {
+    listCard.style.marginTop = '0';
+    section.appendChild(listCard);
+  }
+  mount.appendChild(section);
+}
+
+function hideCreditCardsDirectPurchaseCard(): void {
+  document.querySelectorAll('#view-creditCards h3').forEach((title) => {
+    if (title.textContent?.trim() === 'Nova compra') {
+      title.closest('.card')?.classList.add('hidden');
+    }
+  });
+}
+
+function hideSettingsMetaDashboardCard(): void {
+  document.querySelectorAll('#view-settings h3').forEach((title) => {
+    if (title.textContent?.trim() === 'Meta no Dashboard') {
+      title.closest('.card')?.classList.add('hidden');
+    }
+  });
+}
+
 function openTxnModal(id: string | null): void {
   const modal = getEl('txnModal');
   modal.classList.add('open');
@@ -3409,12 +4101,13 @@ function openTxnModal(id: string | null): void {
   typeSel.innerHTML = txnModalTypeOptionsHtml(!id);
   typeSel.value = 'entrada';
   getEl<HTMLInputElement>('txnAmount').value = '';
-  getEl<HTMLInputElement>('txnDate').value = new Date().toISOString().slice(0, 10);
+  getEl<HTMLInputElement>('txnDate').value = todayIsoLocal();
   getEl<HTMLInputElement>('txnCategory').value = '';
-  getEl<HTMLInputElement>('txnMethod').value = '';
+  getEl<HTMLInputElement>('txnMethod').value = DEFAULT_TRANSACTION_METHOD;
   getEl<HTMLTextAreaElement>('txnDescription').value = '';
   getEl<HTMLInputElement>('txnDueDate').value = '';
   getEl<HTMLSelectElement>('txnExpenseKind').value = '';
+  getEl<HTMLSelectElement>('txnInstallments').value = '1';
   getEl<HTMLInputElement>('txnUnifiedInvType').value = '';
   getEl<HTMLInputElement>('txnUnifiedInvYield').value = '';
   getEl<HTMLInputElement>('txnUnifiedInvMonths').value = '';
@@ -3427,18 +4120,24 @@ function openTxnModal(id: string | null): void {
     title.textContent = 'Editar lançamento';
     delBtn.classList.remove('hidden');
     getEl<HTMLInputElement>('txnId').value = t.id;
-    getEl<HTMLSelectElement>('txnBank').value =
-      t.bankId && state.banks.some((b) => b.id === t.bankId) ? t.bankId : '';
     typeSel.value = t.type;
+    getEl<HTMLSelectElement>('txnBank').value =
+      t.type === 'saida' && t.expenseCardId && state.creditCards.some((card) => card.id === t.expenseCardId)
+        ? `card:${t.expenseCardId}`
+        : t.bankId && state.banks.some((b) => b.id === t.bankId)
+          ? t.type === 'saida'
+            ? `bank:${t.bankId}`
+            : t.bankId
+          : '';
     getEl<HTMLInputElement>('txnAmount').value = formatMoneyInputBR(Number(t.amount));
     getEl<HTMLInputElement>('txnDate').value = t.date;
     getEl<HTMLInputElement>('txnDueDate').value = t.dueDate ?? '';
     getEl<HTMLInputElement>('txnCategory').value = t.category ?? '';
-    getEl<HTMLInputElement>('txnMethod').value = t.method ?? '';
     getEl<HTMLTextAreaElement>('txnDescription').value = t.description ?? '';
     syncTxnFormUI(t.status);
+    getEl<HTMLInputElement>('txnMethod').value = t.type === 'entrada' ? DEFAULT_TRANSACTION_METHOD : (t.method ?? '');
     if (t.type === 'saida' && t.expenseKind && isExpenseKind(t.expenseKind)) {
-      getEl<HTMLSelectElement>('txnExpenseKind').value = t.expenseKind;
+      getEl<HTMLSelectElement>('txnExpenseKind').value = t.expenseCardId ? `card:${t.expenseCardId}` : t.expenseKind;
     }
     const toDelete = id;
     delBtn.onclick = () => {
@@ -3505,7 +4204,7 @@ async function saveTransaction(): Promise<void> {
   if (getTxnModalMode() === 'investimento') {
     if (!state.banks.length) {
       toast('Cadastre pelo menos um banco antes de registrar investimentos.', 'error');
-      switchView('banks');
+      switchView('settings');
       return;
     }
     saveUnifiedInvestment();
@@ -3514,27 +4213,57 @@ async function saveTransaction(): Promise<void> {
   const id = getEl<HTMLInputElement>('txnId').value.trim();
   const typeRaw = getEl<HTMLSelectElement>('txnType').value;
   const type: TxnType = isTxnType(typeRaw) ? typeRaw : 'entrada';
-  if (type === 'saida' && !state.banks.length) {
-    toast('Cadastre pelo menos um banco antes de lançar despesas.', 'error');
-    switchView('banks');
+  if (type === 'saida' && !state.banks.length && !state.creditCards.length) {
+    toast('Cadastre pelo menos uma conta ou um cartao antes de lancar despesas.', 'error');
+    switchView('settings');
     return;
   }
   const bankSelect = getEl<HTMLSelectElement>('txnBank').value;
-  const bankId = type === 'entrada' && !state.banks.length ? '' : bankSelect;
+  const paymentSource = type === 'saida' ? parseTxnPaymentSource(bankSelect) : { kind: 'bank' as const, id: bankSelect };
+  const bankId =
+    type === 'entrada' && !state.banks.length
+      ? ''
+      : type === 'saida' && paymentSource.kind === 'bank'
+        ? paymentSource.id
+        : bankSelect;
   const amount = parseMoneyBRL(getEl<HTMLInputElement>('txnAmount').value);
   const date = getEl<HTMLInputElement>('txnDate').value;
   const category = getEl<HTMLInputElement>('txnCategory').value.trim();
-  const method = getEl<HTMLInputElement>('txnMethod').value.trim();
+  const method =
+    type === 'entrada'
+      ? DEFAULT_TRANSACTION_METHOD
+      : paymentSource.kind === 'card'
+        ? 'Cartao'
+        : DEFAULT_TRANSACTION_METHOD;
   const description = getEl<HTMLTextAreaElement>('txnDescription').value.trim();
   const dueRaw = getEl<HTMLInputElement>('txnDueDate').value.trim();
+  const rawInstallments = Number(getEl<HTMLSelectElement>('txnInstallments').value);
+  const installments = Number.isFinite(rawInstallments) ? Math.min(120, Math.max(1, Math.round(rawInstallments))) : 1;
   let expenseKind: ExpenseKind | undefined;
+  let expenseCardId: string | undefined;
   if (type === 'saida') {
+    if (paymentSource.kind === 'card') {
+      expenseKind = 'cartao';
+      expenseCardId = paymentSource.id;
+    } else if (paymentSource.kind === 'bank') {
+      expenseKind = 'variavel';
+    } else {
     const ek = getEl<HTMLSelectElement>('txnExpenseKind').value;
-    expenseKind = isExpenseKind(ek) ? ek : undefined;
+    if (ek.startsWith('card:')) {
+      const cardId = ek.slice(5);
+      if (state.creditCards.some((card) => card.id === cardId)) {
+        expenseKind = 'cartao';
+        expenseCardId = cardId;
+      }
+    } else {
+      expenseKind = isExpenseKind(ek) ? ek : undefined;
+    }
+    }
   }
   const status = parseTxnStatus(type, getEl<HTMLSelectElement>('txnStatus').value);
-  if (type === 'saida' && !bankId) {
-    toast('Selecione a conta para a despesa.', 'error');
+  const isCardPurchase = type === 'saida' && expenseKind === 'cartao';
+  if (type === 'saida' && paymentSource.kind === 'none') {
+    toast('Selecione a conta debitada ou o cartao da despesa.', 'error');
     return;
   }
   if (type === 'entrada' && state.banks.length > 0 && !bankId) {
@@ -3545,12 +4274,33 @@ async function saveTransaction(): Promise<void> {
     toast('Preencha data e um valor válido (ex.: 10.000,00 ou 1500,50).', 'error');
     return;
   }
-  if (!dueRaw) {
-    toast('Informe a data de vencimento.', 'error');
+  if (!dueRaw && !isCardPurchase) {
+    toast(type === 'saida' ? 'Informe a data de pagamento.' : 'Informe a data de recebimento.', 'error');
     return;
   }
   if (type === 'saida' && !id && !(await confirmBehaviorGuard(`${category} ${description} ${method}`, amount, date))) {
     toast('Lancamento pausado. Voce pode revisar antes de salvar.', 'error');
+    return;
+  }
+  if (isCardPurchase && expenseCardId) {
+    const purchase: Omit<CreditCardPurchase, 'id'> = {
+      cardId: expenseCardId,
+      date,
+      description: (description || category || 'Compra no cartao').trim().slice(0, 500),
+      category: (category || 'Cartao de Credito').trim(),
+      amount: Math.round(amount * 100) / 100,
+      installments,
+    };
+    if (creditCardPurchaseDuplicate(purchase)) {
+      toast('Essa compra ja existe na fatura do cartao.', 'error');
+      return;
+    }
+    if (id) state.transactions = state.transactions.filter((t) => t.id !== id);
+    state.creditCardPurchases.push({ id: uid(), ...purchase });
+    renderAll();
+    closeTxnModal();
+    switchView('creditCards');
+    toast(id ? 'Lancamento movido para a fatura do cartao.' : 'Compra registrada na fatura do cartao.', 'success');
     return;
   }
   const payload: Transaction = {
@@ -3564,6 +4314,7 @@ async function saveTransaction(): Promise<void> {
     description,
     dueDate: dueRaw,
     ...(type === 'saida' && expenseKind ? { expenseKind } : {}),
+    ...(type === 'saida' && expenseCardId ? { expenseCardId } : {}),
     ...(status ? { status } : {}),
   };
   if (id) {
@@ -3576,6 +4327,60 @@ async function saveTransaction(): Promise<void> {
   closeTxnModal();
   switchView('transactions');
   toast(id ? 'Lançamento atualizado.' : 'Lançamento criado.', 'success');
+}
+
+function repeatedTransactionExists(source: Transaction, nextDate: string, nextDueDate: string | undefined): boolean {
+  const sourceDesc = (source.description ?? '').trim();
+  const sourceCategory = (source.category ?? '').trim();
+  return state.transactions.some(
+    (t) =>
+      t.type === source.type &&
+      t.bankId === source.bankId &&
+      Number(t.amount ?? 0) === Number(source.amount ?? 0) &&
+      (t.category ?? '').trim() === sourceCategory &&
+      (t.description ?? '').trim() === sourceDesc &&
+      t.date === nextDate &&
+      (t.dueDate ?? '') === (nextDueDate ?? '')
+  );
+}
+
+function repeatPeriodTransactionsToNextMonth(): void {
+  const period = cashflowPeriod();
+  const source = transactionsInPeriod(period);
+  if (!source.length) {
+    toast(`Nenhuma receita ou despesa encontrada em ${period.label}.`, 'error');
+    return;
+  }
+  const nextLabelDate = addMonthsIso(period.start, 1);
+  const [nextYear, nextMonth] = nextLabelDate.split('-').map(Number);
+  const nextLabel = `${DASHBOARD_MONTH_LABELS[nextMonth - 1]} ${nextYear}`;
+  if (!confirm(`Repetir ${source.length} receita(s)/despesa(s) de ${period.label} para ${nextLabel}?`)) return;
+
+  const created: Transaction[] = [];
+  let skipped = 0;
+  for (const t of source) {
+    const nextDate = addMonthsIso(t.date, 1);
+    const nextDueDate = t.dueDate ? addMonthsIso(t.dueDate, 1) : undefined;
+    if (repeatedTransactionExists(t, nextDate, nextDueDate)) {
+      skipped += 1;
+      continue;
+    }
+    created.push({
+      ...t,
+      id: uid(),
+      date: nextDate,
+      ...(nextDueDate ? { dueDate: nextDueDate } : {}),
+      status: t.type === 'entrada' ? 'a_receber' : 'a_vencer',
+    });
+  }
+
+  if (!created.length) {
+    toast('Nada foi criado: os lancamentos do proximo mes ja existem.', 'error');
+    return;
+  }
+  state.transactions.push(...created);
+  renderAll();
+  toast(`${created.length} lancamento(s) repetido(s) para ${nextLabel}${skipped ? `; ${skipped} ja existia(m).` : '.'}`, 'success');
 }
 
 function deleteTransaction(id: string): void {
@@ -3622,7 +4427,7 @@ function openBankModal(id: string): void {
   getEl<HTMLInputElement>('editBankName').value = bank.name;
   getEl<HTMLInputElement>('editBankCode').value = bank.code ?? '';
   getEl<HTMLInputElement>('editBankSegment').value = bank.segment ?? '';
-  getEl<HTMLSelectElement>('editBankAccountType').value = bank.accountType || 'Conta corrente';
+  getEl<HTMLSelectElement>('editBankAccountType').value = normalizedBankAccountType(bank) || 'Conta corrente';
   getEl<HTMLInputElement>('editBankNote').value = bank.note ?? '';
   getEl<HTMLInputElement>('editBankName').focus();
 }
@@ -3700,7 +4505,7 @@ function exportCsv(): void {
         bankLabelById(t.bankId),
         '',
         typeLabel(t.type),
-        t.type === 'saida' ? expenseKindLabel(t.expenseKind) : '',
+        t.type === 'saida' ? expenseKindLabel(t.expenseKind, t.expenseCardId) : '',
         statusLabel(t.status),
         t.category ?? '',
         t.description ?? '',
@@ -3981,6 +4786,15 @@ async function onDisableAuthProtection(): Promise<void> {
 export async function initApp(): Promise<void> {
   await waitForPasswordIfNeeded();
   state = await loadStateFromDisk();
+  migrateCardTransactionsOutOfCashflow();
+  loadDashboardPeriodPreference();
+  loadCashflowPeriodPreference();
+  mountSettingsCadastros();
+  mountSettingsBanks();
+  mountSettingsCreditCards();
+  hideCreditCardsDirectPurchaseCard();
+  hideSettingsMetaDashboardCard();
+  loadAppThemePreference();
   initSidebarPreference();
 
   document.querySelectorAll('.nav-btn').forEach((btn) => {
@@ -3990,8 +4804,44 @@ export async function initApp(): Promise<void> {
     });
   });
   getEl<HTMLButtonElement>('btnBackToMobileMenu').addEventListener('click', showMobileMenu);
+  initAppThemeControl();
+  getEl<HTMLSelectElement>('dashboardMonth').addEventListener('change', (e) => {
+    const next = Number((e.target as HTMLSelectElement).value);
+    if (!Number.isInteger(next) || next < 0 || next > 11) return;
+    dashboardMonth = next;
+    saveDashboardPeriodPreference();
+    renderAll();
+  });
+  getEl<HTMLInputElement>('dashboardYear').addEventListener('change', (e) => {
+    const next = Number((e.target as HTMLInputElement).value);
+    if (!Number.isInteger(next) || next < 2000 || next > 2100) {
+      renderDashboardPeriodControls();
+      return;
+    }
+    dashboardYear = next;
+    saveDashboardPeriodPreference();
+    renderAll();
+  });
+  getEl<HTMLSelectElement>('cashflowMonth').addEventListener('change', (e) => {
+    const next = Number((e.target as HTMLSelectElement).value);
+    if (!Number.isInteger(next) || next < 0 || next > 11) return;
+    cashflowMonth = next;
+    saveCashflowPeriodPreference();
+    renderTransactionsTable();
+  });
+  getEl<HTMLInputElement>('cashflowYear').addEventListener('change', (e) => {
+    const next = Number((e.target as HTMLInputElement).value);
+    if (!Number.isInteger(next) || next < 2000 || next > 2100) {
+      renderCashflowPeriodControls();
+      return;
+    }
+    cashflowYear = next;
+    saveCashflowPeriodPreference();
+    renderTransactionsTable();
+  });
 
   getEl<HTMLButtonElement>('btnAddTxnInline').addEventListener('click', () => openTxnModal(null));
+  getEl<HTMLButtonElement>('btnRepeatNextMonth').addEventListener('click', repeatPeriodTransactionsToNextMonth);
   getEl<HTMLButtonElement>('btnCreateBank').addEventListener('click', createBank);
   getEl<HTMLButtonElement>('btnCreateCreditCard').addEventListener('click', createCreditCard);
   getEl<HTMLButtonElement>('btnCreateCreditPurchase').addEventListener('click', () => void createCreditPurchase());
@@ -4105,6 +4955,7 @@ export async function initApp(): Promise<void> {
     syncTxnFormUI();
     refreshTxnCategoryDatalist();
   });
+  getEl<HTMLSelectElement>('txnBank').addEventListener('change', updateTxnPaymentSourceUI);
   getEl<HTMLInputElement>('catalogSearch').addEventListener('input', renderCatalogList);
   getEl<HTMLSelectElement>('reportMode').addEventListener('change', renderReportAnalysis);
   getEl<HTMLSelectElement>('reportYear').addEventListener('change', renderReportAnalysis);
@@ -4164,7 +5015,7 @@ export async function initApp(): Promise<void> {
       addCatalogInvType();
     }
   });
-  getEl('view-cadastros').addEventListener('click', (e) => {
+  getEl('settingsCadastros').addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest('[data-cad-del]');
     if (!btn) return;
     const kind = btn.getAttribute('data-cad-del') as 'income' | 'expense' | 'inv' | null;
@@ -4227,6 +5078,28 @@ export async function initApp(): Promise<void> {
       const id = delInv.getAttribute('data-delete-inv');
       if (id) deleteInvestment(id);
     }
+  });
+  getEl('transactionsTable').addEventListener('change', (e) => {
+    const sel = (e.target as HTMLElement).closest('[data-txn-status]') as HTMLSelectElement | null;
+    if (!sel) return;
+    const id = sel.getAttribute('data-txn-status');
+    const txn = state.transactions.find((t) => t.id === id);
+    if (!txn) return;
+    const next = parseTxnStatus(txn.type, sel.value);
+    if (!next) {
+      renderTransactionsTable();
+      return;
+    }
+    txn.status = next;
+    renderAll();
+    toast(
+      txn.type === 'saida' && next === 'pago'
+        ? 'Despesa marcada como paga e abatida da conta.'
+        : txn.type === 'entrada' && next === 'recebido'
+          ? 'Receita marcada como recebida e somada na conta.'
+          : 'Status atualizado.',
+      'success'
+    );
   });
 
   getEl('banksList').addEventListener('click', (e) => {

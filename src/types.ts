@@ -1,6 +1,6 @@
 export type TxnType = 'entrada' | 'saida';
 
-export type ExpenseKind = 'fixa' | 'variavel';
+export type ExpenseKind = 'fixa' | 'variavel' | 'cartao';
 
 export type IncomeTxnStatus = 'recebido' | 'a_receber' | 'em_atraso';
 export type ExpenseTxnStatus = 'pago' | 'a_vencer' | 'em_atraso' | 'agendado';
@@ -27,6 +27,7 @@ export interface Transaction {
   description: string;
   dueDate?: string;
   expenseKind?: ExpenseKind;
+  expenseCardId?: string;
   status?: TxnStatus;
 }
 
@@ -119,7 +120,6 @@ export const VIEWS = [
   'behavior',
   'budgets',
   'banks',
-  'cadastros',
   'investments',
   'reports',
   'settings',
@@ -135,7 +135,7 @@ export function isTxnType(value: string): value is TxnType {
 }
 
 export function isExpenseKind(value: string): value is ExpenseKind {
-  return value === 'fixa' || value === 'variavel';
+  return value === 'fixa' || value === 'variavel' || value === 'cartao';
 }
 
 export function isSavingsGoalId(value: string | undefined): value is SavingsGoalId {

@@ -42,6 +42,10 @@
       <button type="button" class="sidebar-toggle" id="sidebarToggle" aria-label="Recolher menu" aria-expanded="true" title="Recolher menu">
         <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
+      <button type="button" class="theme-toggle-btn" id="appThemeToggle" title="Alternar tema">
+        <span class="theme-toggle-dot"></span>
+        <span class="theme-toggle-label">Escuro</span>
+      </button>
       <div class="brand">
         <div class="logo"><img src="logo-app.png" width="80" height="80" alt="" decoding="async" /></div>
         <div class="brand-copy">
@@ -62,10 +66,6 @@
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>
           <span class="nav-label">Cartoes</span>
         </button>
-        <button type="button" class="nav-btn" data-view="behavior">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20v-6"/><path d="M6 20V10"/><path d="M18 20V4"/><path d="M4 20h16"/></svg>
-          <span class="nav-label">Comportamento</span>
-        </button>
         <button type="button" class="nav-btn" data-view="budgets">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M13 16V8"/><path d="M18 16v-3"/></svg>
           <span class="nav-label">Orcamentos</span>
@@ -73,10 +73,6 @@
         <button type="button" class="nav-btn" data-view="banks">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
           <span class="nav-label">Contas</span>
-        </button>
-        <button type="button" class="nav-btn" data-view="cadastros">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-          <span class="nav-label">Parametros</span>
         </button>
         <button type="button" class="nav-btn" data-view="investments">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
@@ -88,7 +84,7 @@
         </button>
         <button type="button" class="nav-btn" data-view="settings">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <span class="nav-label">Dados e Seguranca</span>
+          <span class="nav-label">Configuracoes</span>
         </button>
       </nav>
       <aside class="sidebar-tip" id="sidebarTip" aria-live="polite">
@@ -122,12 +118,25 @@
       </div>
 
       <section id="view-dashboard" aria-labelledby="pageTitle">
+        <div class="dashboard-period-bar" aria-label="Periodo do Dashboard">
+          <div>
+            <span class="dashboard-period-eyebrow">Periodo do retrato</span>
+            <strong id="dashboardPeriodTitle">Mes atual</strong>
+            <p id="dashboardPeriodHint">Indicadores filtrados pelo mes selecionado.</p>
+          </div>
+          <div class="dashboard-period-controls">
+            <label for="dashboardMonth">Mes</label>
+            <select id="dashboardMonth"></select>
+            <label for="dashboardYear">Ano</label>
+            <input id="dashboardYear" type="number" min="2000" max="2100" step="1" />
+          </div>
+        </div>
         <div class="dashboard-kpis">
-          <div class="card kpi"><h3>Saldo geral</h3><div class="value" id="kpiBalance">R$ 0,00</div></div>
-          <div class="card kpi"><h3>Total de entradas</h3><div class="value positive" id="kpiIncome">R$ 0,00</div></div>
-          <div class="card kpi"><h3>Total de saídas</h3><div class="value negative" id="kpiExpense">R$ 0,00</div></div>
-          <div class="card kpi kpi-invest"><h3>Patrimônio investido</h3><p class="kpi-hint">Soma dos aportes registados</p><div class="value kpi-invest-value" id="kpiInvested">R$ 0,00</div></div>
-          <div class="card kpi"><h3>Lançamentos</h3><p class="kpi-hint">Lista: receitas, despesas e aportes</p><div class="value" id="kpiCount">0</div></div>
+          <div class="card kpi kpi-tone-blue"><span class="kpi-icon">$</span><h3>Saldo do mes</h3><div class="value" id="kpiBalance">R$ 0,00</div><svg class="kpi-wave" viewBox="0 0 220 60"><path d="M0 36 C25 48 48 10 78 24 S124 44 154 26 S196 30 220 20"/></svg></div>
+          <div class="card kpi kpi-tone-green"><span class="kpi-icon">↓</span><h3>Entradas do mes</h3><div class="value positive" id="kpiIncome">R$ 0,00</div><svg class="kpi-wave" viewBox="0 0 220 60"><path d="M0 26 C25 24 42 54 72 34 S116 16 145 34 S178 48 220 18"/></svg></div>
+          <div class="card kpi kpi-tone-red"><span class="kpi-icon">↑</span><h3>Saidas do mes</h3><div class="value negative" id="kpiExpense">R$ 0,00</div><svg class="kpi-wave" viewBox="0 0 220 60"><path d="M0 36 C22 24 45 42 72 32 S115 5 150 24 S185 48 220 28"/></svg></div>
+          <div class="card kpi kpi-invest kpi-tone-purple"><span class="kpi-icon">◔</span><h3>Patrimônio investido</h3><p class="kpi-hint">Soma dos aportes registados</p><div class="value kpi-invest-value" id="kpiInvested">R$ 0,00</div><svg class="kpi-wave" viewBox="0 0 220 60"><path d="M0 33 C30 48 45 42 72 18 S118 12 145 35 S188 40 220 22"/></svg></div>
+          <div class="card kpi kpi-tone-cyan"><span class="kpi-icon">▤</span><h3>Lançamentos</h3><p class="kpi-hint">Lista: receitas, despesas e aportes</p><div class="value" id="kpiCount">0</div><svg class="kpi-wave" viewBox="0 0 220 60"><path d="M0 34 C28 44 55 30 86 25 S140 47 174 32 S198 24 220 28"/></svg></div>
         </div>
         <div class="card decision-center-card" aria-labelledby="decisionCenterTitle">
           <div class="section-title section-title-premium">
@@ -138,16 +147,6 @@
             <span class="pill">Operacional</span>
           </div>
           <div class="decision-grid" id="dashboardDecisionCenter"></div>
-        </div>
-        <div class="card behavior-partner-card" aria-labelledby="behaviorPartnerTitle">
-          <div class="section-title section-title-premium">
-            <div>
-              <h3 id="behaviorPartnerTitle">Parceiro Financeiro</h3>
-              <p>Leitura comportamental para proteger seu caixa antes do impulso virar problema.</p>
-            </div>
-            <span class="pill">Comportamental</span>
-          </div>
-          <div class="behavior-partner-grid" id="behaviorPartner"></div>
         </div>
         <div class="card kpi-goal-card kpi-hero-card" aria-labelledby="kpiTotalPatrimonyLabel">
           <div class="kpi-hero-bento">
@@ -278,9 +277,22 @@
           </div>
           <div class="cashflow-strip" id="cashflowSummary"></div>
           <div class="txn-filter-col">
+            <div class="cashflow-period-bar" aria-label="Periodo do Fluxo de Caixa">
+              <div>
+                <span class="dashboard-period-eyebrow">Periodo do fluxo</span>
+                <strong id="cashflowPeriodTitle">Mes atual</strong>
+              </div>
+              <div class="dashboard-period-controls cashflow-period-controls">
+                <label for="cashflowMonth">Mes</label>
+                <select id="cashflowMonth"></select>
+                <label for="cashflowYear">Ano</label>
+                <input id="cashflowYear" type="number" min="2000" max="2100" step="1" />
+              </div>
+            </div>
             <div class="txn-filter-actions">
               <button type="button" class="btn primary" id="btnAddTxnInline">Adicionar lancamento</button>
               <button type="button" class="btn ghost" id="btnImportCsv">Importar CSV</button>
+              <button type="button" class="btn ghost" id="btnRepeatNextMonth">Repetir para proximo mes</button>
               <input type="file" id="importCsvFile" class="hidden" accept=".csv,text/csv" />
             </div>
             <div class="cashflow-tabs" id="cashflowTabs" aria-label="Filtros do fluxo de caixa">
@@ -314,7 +326,7 @@
               <input type="hidden" id="bankCode" />
               <input type="hidden" id="bankSegment" />
               <div><label for="bankName">Nome do banco</label><input id="bankName" placeholder="Ex.: Nubank" autocomplete="organization" /></div>
-              <div><label for="bankAccountType">Tipo de conta</label><select id="bankAccountType"><option value="Conta corrente">Conta corrente</option><option value="Conta poupança">Conta poupança</option><option value="Carteira">Carteira</option><option value="Investimento">Investimento</option><option value="Outro">Outro</option></select></div>
+              <div><label for="bankAccountType">Tipo de conta</label><select id="bankAccountType"><option value="Conta corrente">Conta corrente</option><option value="Conta corrente empresarial">Conta corrente empresarial</option><option value="Conta poupança">Conta poupança</option><option value="Carteira">Carteira</option><option value="Conta investimento">Conta investimento</option><option value="Conta investimento empresarial">Conta investimento empresarial</option><option value="Outro">Outro</option></select></div>
               <div class="full"><label for="bankNote">Observação <span class="field-hint">(máx. 500 caracteres)</span></label><input id="bankNote" type="text" maxlength="500" placeholder="Ex.: Conta principal" autocomplete="off" /></div>
               <div class="full"><button type="button" class="btn success" id="btnCreateBank">Salvar banco</button></div>
             </div>
@@ -322,7 +334,7 @@
         </div>
       </section>
 
-      <section id="view-cadastros" class="hidden" aria-labelledby="pageTitle">
+      <section id="settingsCadastros" aria-labelledby="pageTitle">
         <div class="cadastro-grid">
           <div class="card">
             <div class="section-title"><div><h3>Categorias de receita</h3><p>Sugestões ao lançar receitas</p></div></div>
@@ -367,9 +379,9 @@
 
       <section id="view-behavior" class="hidden" aria-labelledby="pageTitle">
         <div class="behavior-summary-grid">
-          <div class="card behavior-summary"><span>Gasto sensivel no mes</span><strong id="behaviorSensitiveTotal">R$ 0,00</strong><p>Fluxo de caixa + compras no cartao.</p></div>
-          <div class="card behavior-summary"><span>Habitos em atencao</span><strong id="behaviorRiskCount">0</strong><p>Categorias com repeticao, alta ou pressao.</p></div>
-          <div class="card behavior-summary"><span>Ultimos 7 dias</span><strong id="behaviorRecentCount">0</strong><p>Registros sensiveis recentes.</p></div>
+          <div class="card behavior-summary"><span><i aria-hidden="true">!</i>Gasto sensivel no mes</span><strong id="behaviorSensitiveTotal">R$ 0,00</strong><p>Fluxo de caixa + compras no cartao.</p></div>
+          <div class="card behavior-summary"><span><i aria-hidden="true">⌁</i>Habitos em atencao</span><strong id="behaviorRiskCount">0</strong><p>Categorias com repeticao, alta ou pressao.</p></div>
+          <div class="card behavior-summary"><span><i aria-hidden="true">7</i>Ultimos 7 dias</span><strong id="behaviorRecentCount">0</strong><p>Registros sensiveis recentes.</p></div>
         </div>
 
         <div class="card behavior-coach-card" style="margin-top:18px">
@@ -383,10 +395,10 @@
 
       <section id="view-creditCards" class="hidden" aria-labelledby="pageTitle">
         <div class="credit-kpis">
-          <div class="card credit-kpi"><span>Limite total</span><strong id="creditLimitTotal">R$ 0,00</strong><p>Soma dos cartoes cadastrados</p></div>
-          <div class="card credit-kpi"><span>Limite usado</span><strong id="creditLimitUsed">R$ 0,00</strong><p>Compras ainda futuras ou abertas</p></div>
-          <div class="card credit-kpi"><span>Disponivel</span><strong id="creditLimitAvailable">R$ 0,00</strong><p>Limite restante estimado</p></div>
-          <div class="card credit-kpi"><span>Fatura atual</span><strong id="creditCurrentInvoice">R$ 0,00</strong><p id="creditCurrentInvoiceHint">Sem fatura aberta</p></div>
+          <div class="card credit-kpi"><span><i aria-hidden="true">□</i>Limite total</span><strong id="creditLimitTotal">R$ 0,00</strong><p>Soma dos cartoes cadastrados</p></div>
+          <div class="card credit-kpi"><span><i aria-hidden="true">↗</i>Limite usado</span><strong id="creditLimitUsed">R$ 0,00</strong><p>Compras ainda futuras ou abertas</p></div>
+          <div class="card credit-kpi"><span><i aria-hidden="true">✓</i>Disponivel</span><strong id="creditLimitAvailable">R$ 0,00</strong><p>Limite restante estimado</p></div>
+          <div class="card credit-kpi"><span><i aria-hidden="true">$</i>Fatura atual</span><strong id="creditCurrentInvoice">R$ 0,00</strong><p id="creditCurrentInvoiceHint">Sem fatura aberta</p></div>
         </div>
 
         <div class="two-col credit-layout" style="margin-top:18px">
@@ -537,6 +549,11 @@
       <section id="view-investments" class="hidden" aria-labelledby="pageTitle">
         <div class="inv-dash-top">
           <div class="card inv-dash-hero">
+            <div class="inv-dash-art" aria-hidden="true">
+              <img src="patrimonio-sonhos.svg" width="220" height="172" alt="" decoding="async" loading="lazy" />
+              <span>↑</span>
+              <span>◔</span>
+            </div>
             <p class="muted small" style="margin:0 0 6px">Patrimônio líquido</p>
             <p id="invDashNetWorth" class="inv-dash-hero-amount">R$ 0,00</p>
             <p class="muted small" style="margin:0">Soma do saldo dos lançamentos (receitas − despesas) + total investido em aportes.</p>
@@ -554,14 +571,14 @@
           </div>
         </div>
 
-        <div class="card" style="margin-bottom:18px">
+        <div class="card hidden" style="margin-bottom:18px">
           <div class="section-title">
             <div><h3>Saldo de investimentos por conta</h3><p>Soma dos aportes vinculados a cada banco (ou sem vínculo)</p></div>
           </div>
           <div id="invByBank" class="inv-by-bank-list"></div>
         </div>
 
-        <div class="card" style="margin-bottom:18px">
+        <div class="card hidden" style="margin-bottom:18px">
           <div class="section-title">
             <div><h3>Metas de compra</h3><p>Meta em R$. A barra usa o extra manual + aportes de investimento em que escolheste a mesma meta.</p></div>
           </div>
@@ -671,6 +688,21 @@
       </section>
 
       <section id="view-settings" class="hidden" aria-labelledby="pageTitle">
+        <div id="settingsCadastrosMount"></div>
+        <div id="settingsBanksMount"></div>
+        <div id="settingsCreditCardsMount"></div>
+        <div class="card" style="margin-bottom:18px">
+          <div class="section-title"><div><h3>Aparencia</h3><p>Escolha o tema visual do app.</p></div></div>
+          <div class="form-grid">
+            <div>
+              <label for="appThemeSelect">Tema</label>
+              <select id="appThemeSelect">
+                <option value="light">Azul claro</option>
+                <option value="blue-glass">Azul escuro</option>
+              </select>
+            </div>
+          </div>
+        </div>
         <div class="card" style="margin-bottom:18px">
           <div class="section-title"><div><h3>Proteção por senha</h3><p>Cifra os dados no <strong>localStorage</strong> deste navegador (AES-GCM + PBKDF2). Não substitui um servidor nem impede acesso técnico avançado ao dispositivo.</p></div></div>
           <p id="authProtectStatus" class="muted" style="margin:0 0 14px;line-height:1.6"></p>
@@ -743,21 +775,21 @@
           <select id="txnType">
             <option value="entrada">Receita</option>
             <option value="saida">Despesa</option>
-            <option value="investimento">Investimento</option>
+            <option value="Conta investimento">Conta investimento</option>
           </select>
         </div>
         <div id="txnBankWrap" class="hidden">
           <label for="txnBank" id="txnBankLabel">Banco / conta</label>
           <select id="txnBank"></select>
         </div>
-        <div><label for="txnDate">Data</label><input id="txnDate" type="date" /></div>
+        <div><label for="txnDate">Data de lançamento</label><input id="txnDate" type="date" /></div>
         <div><label for="txnAmount">Valor (R$)</label><input id="txnAmount" type="text" inputmode="decimal" placeholder="Ex.: 10.000,00" autocomplete="off" /></div>
         <div id="txnDueDateWrap" class="hidden">
-          <label for="txnDueDate">Data de vencimento <span class="req-mark">*</span></label>
+          <label for="txnDueDate" id="txnDueDateLabel">Data de recebimento <span class="req-mark">*</span></label>
           <input id="txnDueDate" type="date" autocomplete="off" />
         </div>
         <div id="txnExpenseKindWrap" class="hidden">
-          <label for="txnExpenseKind">Tipo (fixa / variável)</label>
+          <label for="txnExpenseKind">Tipo (fixa / variável / cartão)</label>
           <select id="txnExpenseKind">
             <option value="">—</option>
             <option value="fixa">Fixa</option>
@@ -773,9 +805,34 @@
           <label for="txnStatus">Status</label>
           <select id="txnStatus"></select>
         </div>
+        <div id="txnInstallmentsWrap" class="hidden">
+          <label for="txnInstallments">Pagamento</label>
+          <select id="txnInstallments">
+            <option value="1">A vista (1x)</option>
+            <option value="2">2x</option>
+            <option value="3">3x</option>
+            <option value="4">4x</option>
+            <option value="5">5x</option>
+            <option value="6">6x</option>
+            <option value="7">7x</option>
+            <option value="8">8x</option>
+            <option value="9">9x</option>
+            <option value="10">10x</option>
+            <option value="11">11x</option>
+            <option value="12">12x</option>
+          </select>
+        </div>
         <div id="txnMethodWrap">
           <label for="txnMethod">Forma de pagamento</label>
-          <input id="txnMethod" placeholder="PIX, cartão, TED…" autocomplete="off" />
+          <input id="txnMethod" list="txnMethodList" value="PIX" readonly autocomplete="off" />
+          <datalist id="txnMethodList">
+            <option value="PIX"></option>
+            <option value="Cartão"></option>
+            <option value="Débito"></option>
+            <option value="TED"></option>
+            <option value="Boleto"></option>
+            <option value="Dinheiro"></option>
+          </datalist>
         </div>
         <div id="txnUnifiedInvWrap" class="txn-unified-inv-grid hidden">
           <div class="full">
@@ -861,7 +918,7 @@
         <div class="full"><label for="editBankName">Nome</label><input id="editBankName" /></div>
         <div><label for="editBankCode">Código FEBRABAN</label><input id="editBankCode" placeholder="Opcional" /></div>
         <div><label for="editBankSegment">Segmento</label><input id="editBankSegment" placeholder="Opcional" /></div>
-        <div class="full"><label for="editBankAccountType">Tipo de conta</label><select id="editBankAccountType"><option value="Conta corrente">Conta corrente</option><option value="Conta poupança">Conta poupança</option><option value="Carteira">Carteira</option><option value="Investimento">Investimento</option><option value="Outro">Outro</option></select></div>
+        <div class="full"><label for="editBankAccountType">Tipo de conta</label><select id="editBankAccountType"><option value="Conta corrente">Conta corrente</option><option value="Conta corrente empresarial">Conta corrente empresarial</option><option value="Conta poupança">Conta poupança</option><option value="Carteira">Carteira</option><option value="Conta investimento">Conta investimento</option><option value="Conta investimento empresarial">Conta investimento empresarial</option><option value="Outro">Outro</option></select></div>
         <div class="full"><label for="editBankNote">Observação <span class="field-hint">(máx. 500 caracteres)</span></label><input id="editBankNote" type="text" maxlength="500" autocomplete="off" /></div>
         <div class="full" style="display:flex; gap:10px; flex-wrap:wrap">
           <button type="button" class="btn primary" id="saveBankEdit">Salvar alterações</button>
@@ -890,3 +947,5 @@
   <script type="module" src="src/main.ts"></script>
 </body>
 </html>
+
+
